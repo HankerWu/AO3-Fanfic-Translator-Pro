@@ -1,3 +1,4 @@
+
 import { TranslationBlock, TranslationProject } from '../types';
 
 export const generateId = (): string => {
@@ -128,54 +129,56 @@ const parseHTML = (htmlString: string) => {
   }
 
   // Content Extraction
-  // Prioritize content containers to avoid scraping metadata/nav/footer text
-  const root = doc.getElementById('chapters') || 
-               doc.getElementById('workskin') || 
-               doc.querySelector('.userstuff') || 
-               doc.body;
-
-  const relevantTags = ['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'LI', 'DIV'];
-  const allElements = Array.from(root.querySelectorAll('*'));
-  
+  // Improved Strategy: Locate #chapters or .userstuff
   const blocks: TranslationBlock[] = [];
   
-  for (const el of allElements) {
-    if (!relevantTags.includes(el.tagName)) continue;
+  // Try to find the specific chapter containers first (common in full work downloads)
+  const chapterContainers = doc.querySelectorAll('#chapters > .userstuff, #chapters > .chapter');
+  
+  if (chapterContainers.length > 0) {
+     chapterContainers.forEach((chapter, index) => {
+        // Try to find chapter title inside meta if available
+        const metaTitle = chapter.querySelector('.meta h2.heading') || chapter.querySelector('.meta h3.heading');
+        if (metaTitle) {
+            const titleText = cleanText(metaTitle.textContent);
+            if (titleText) {
+                blocks.push({
+                    id: generateId(),
+                    original: `## ${titleText}`, // Use Markdown header for visual distinction
+                    translated: '',
+                    isEdited: false,
+                    isLoading: false,
+                });
+            }
+        } else {
+            // If no explicit meta title, but we are in a multi-chapter structure, add a generic header
+            if (chapterContainers.length > 1) {
+                blocks.push({
+                    id: generateId(),
+                    original: `## Chapter ${index + 1}`,
+                    translated: '',
+                    isEdited: false,
+                    isLoading: false,
+                });
+            }
+        }
 
-    // Filter out navigation/footer divs inside the root if root is body
-    if (el.tagName === 'DIV') {
-       if (el.className.includes('navigation') || el.className.includes('footer') || el.id.includes('footer') || el.className.includes('meta')) continue;
-       
-       // If div has block children, we generally want to go deeper, not take the div text itself
-       const hasBlockChildren = Array.from(el.children).some(c => relevantTags.includes(c.tagName) && c.tagName !== 'DIV');
-       if (hasBlockChildren) continue; 
-    }
-    
-    // Ignore elements inside .meta if we are parsing body
-    if (root === doc.body && el.closest('.meta')) continue;
-
-    const text = cleanText(el.textContent);
-    
-    // Check for meaningful content
-    // Filter out simple "Chapter Text" headers or short metadata lines if they snuck in
-    if (text.length < 2 && !/\d/.test(text)) continue;
-    
-    // Check if this element contains other block elements (don't duplicate content)
-    const hasBlockChildren = Array.from(el.children).some(c => ['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'LI', 'DIV'].includes(c.tagName));
-    
-    if (!hasBlockChildren) {
-       blocks.push({
-         id: generateId(),
-         original: text,
-         translated: '',
-         isEdited: false,
-         isLoading: false,
-       });
-    }
+        // The actual text content usually lives in a .userstuff div inside the chapter div, or is the div itself
+        const contentNode = chapter.querySelector('.userstuff[role="article"]') || chapter;
+        extractBlocksFromNode(contentNode, blocks);
+     });
+  } else {
+      // Single chapter or simple structure
+      const root = doc.getElementById('chapters') || 
+                   doc.getElementById('workskin') || 
+                   doc.querySelector('.userstuff') || 
+                   doc.body;
+      extractBlocksFromNode(root, blocks);
   }
-
+  
   // Fallback: if structure parsing failed, grab all text
   if (blocks.length === 0) {
+      const root = doc.body; 
       return {
           title, author, fandom, tags,
           blocks: splitTextIntoBlocks(root.textContent || "")
@@ -189,6 +192,62 @@ const parseHTML = (htmlString: string) => {
     tags,
     blocks
   };
+};
+
+// Helper to extract P, Headers, and Blockquotes from a container
+const extractBlocksFromNode = (root: Element, blocks: TranslationBlock[]) => {
+    const relevantTags = ['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'LI', 'DIV', 'HR'];
+    // We traverse purely to find these block elements.
+    // Flatten the tree but respect order.
+    
+    // Using a TreeWalker might be better but querySelectorAll('*') is easier to filter
+    const allElements = Array.from(root.querySelectorAll('*'));
+    
+    for (const el of allElements) {
+        if (!relevantTags.includes(el.tagName)) continue;
+
+        // Skip if inside a hidden/meta div that we shouldn't translate
+        if (el.closest('.meta') || el.closest('.navigation') || el.closest('.footer') || el.id === 'work_endnotes') continue;
+
+        // Special handling for DIVs: Only process if they look like paragraphs (text nodes) and don't contain other block elements
+        if (el.tagName === 'DIV') {
+            const hasBlockChildren = Array.from(el.children).some(c => relevantTags.includes(c.tagName) && c.tagName !== 'BR');
+            if (hasBlockChildren) continue;
+        }
+
+        // Avoid duplication: If a parent was already processed, we might duplicate text if we aren't careful.
+        // The simple strategy here: Only take "leaf" block elements.
+        // If an element contains other block elements, we skip it and let the loop catch the children.
+        const hasBlockChildren = Array.from(el.children).some(c => relevantTags.includes(c.tagName));
+        if (hasBlockChildren && el.tagName !== 'BLOCKQUOTE') continue; // Blockquotes we might want to keep as one block or split? Let's split if complex.
+
+        const text = cleanText(el.textContent);
+        
+        // Horizontal Rule
+        if (el.tagName === 'HR') {
+            blocks.push({
+                 id: generateId(),
+                 original: '---',
+                 translated: '---', // No translation needed
+                 isEdited: false,
+                 isLoading: false,
+            });
+            continue;
+        }
+
+        if (text.length < 1 && el.tagName !== 'HR') continue; // Skip empty
+        
+        // Skip repetitive UI text like "Chapter Text" headers if they appear inside content
+        if (text === "Chapter Text") continue;
+
+        blocks.push({
+            id: generateId(),
+            original: text,
+            translated: '',
+            isEdited: false,
+            isLoading: false,
+        });
+    }
 };
 
 export const parseUploadedFile = async (file: File): Promise<{ title: string, author: string, fandom: string, tags: string[], blocks: TranslationBlock[] }> => {

@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { TranslationBlock } from "../types";
 
@@ -17,6 +18,33 @@ export const identifyFandom = async (textSample: string, model: string): Promise
   }
 };
 
+export const generateFandomGlossary = async (fandom: string, targetLang: string, model: string): Promise<string> => {
+  try {
+    const prompt = `Task: Create a concise glossary for the fandom "${fandom}".
+    Target Language: ${targetLang}
+    
+    Include:
+    1. Key Character Names (Original -> Translated)
+    2. Specific Terminology / Jargon (Original -> Translated)
+    3. Location Names
+    
+    Output Format:
+    Original Term: Translated Term (Brief Note if needed)
+    
+    Keep it strictly relevant to translation and helpful for maintaining consistency. Do not output conversational text.`;
+
+    const response = await ai.models.generateContent({
+      model: model,
+      contents: prompt,
+    });
+    return response.text?.trim() || "";
+  } catch (error) {
+    console.error("Glossary generation error:", error);
+    // Explicitly returning null or empty string, UI should handle "empty" as failure if needed or user can retry
+    return ""; 
+  }
+};
+
 interface TranslationOptions {
   model: string;
   customPrompt: string;
@@ -29,7 +57,7 @@ interface TranslationOptions {
 export const translateBatch = async (
   blocks: string[], 
   targetLang: string, 
-  fandom: string,
+  fandom: string, 
   options: TranslationOptions
 ): Promise<string[]> => {
   

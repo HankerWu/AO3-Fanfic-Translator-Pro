@@ -1,3 +1,4 @@
+
 export type LanguageCode = 'en' | 'zh' | 'ja';
 
 export const UI_STRINGS = {
@@ -26,6 +27,8 @@ export const UI_STRINGS = {
     reset: "Reset",
     glossary: "Glossary / Style Guide",
     glossaryPlaceholder: "Enter specific terms, character names, or style notes here...",
+    autoGlossary: "Auto-Generate",
+    generating: "Generating...",
     targetLang: "Target Language",
     aiModel: "AI Model",
     start: "Start Translation",
@@ -96,6 +99,8 @@ export const UI_STRINGS = {
     reset: "重置",
     glossary: "术语表 / 风格指南",
     glossaryPlaceholder: "在此输入特定术语、角色译名或风格要求...",
+    autoGlossary: "AI 自动生成术语表",
+    generating: "生成中...",
     targetLang: "目标语言",
     aiModel: "AI 模型",
     start: "开始翻译",
@@ -166,6 +171,8 @@ export const UI_STRINGS = {
     reset: "リセット",
     glossary: "用語集 / スタイルガイド",
     glossaryPlaceholder: "特定の用語、キャラクター名、スタイルのメモを入力...",
+    autoGlossary: "用語集を自動生成",
+    generating: "生成中...",
     targetLang: "ターゲット言語",
     aiModel: "AIモデル",
     start: "翻訳開始",
