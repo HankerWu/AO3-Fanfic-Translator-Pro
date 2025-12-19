@@ -1,5 +1,6 @@
 # AO3 Fanfic Translator Pro 📚✨
 
+[![中文文档](https://img.shields.io/badge/文档-中文版-red.svg)](README_ZH.md)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![React](https://img.shields.io/badge/React-18-blue)
 ![Gemini 3](https://img.shields.io/badge/AI-Gemini%203-purple)
