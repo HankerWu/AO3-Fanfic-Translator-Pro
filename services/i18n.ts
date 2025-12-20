@@ -190,7 +190,9 @@ export const UI_STRINGS = {
     detectedMeta: "Detected: {{tags}} tags, {{fandom}}",
     refineTemplatePlaceholder: "Template for refinement...",
     defaultRefineTemplate: "Refine this translation: {{original}} -> {{translated}} using instruction: {{instruction}}",
-    done: "Done"
+    done: "Done",
+    viewOriginal: "View Original",
+    hideOriginal: "Hide Original"
   },
   zh: {
     appTitle: "同人翻译器 Pro",
@@ -380,7 +382,9 @@ export const UI_STRINGS = {
     detectedMeta: "检测到：{{tags}} 个标签, {{fandom}}",
     refineTemplatePlaceholder: "润色提示词模版...",
     defaultRefineTemplate: "优化此翻译：{{original}} -> {{translated}} 使用指令：{{instruction}}",
-    done: "完成"
+    done: "完成",
+    viewOriginal: "查看原文",
+    hideOriginal: "隐藏原文"
   },
   ja: {
     appTitle: "翻訳ツール Pro",
@@ -570,6 +574,8 @@ export const UI_STRINGS = {
     detectedMeta: "検出: タグ {{tags}} 個, {{fandom}}",
     refineTemplatePlaceholder: "修正テンプレート...",
     defaultRefineTemplate: "この翻訳を修正：{{original}} -> {{translated}} 指示：{{instruction}}",
-    done: "完了"
+    done: "完了",
+    viewOriginal: "原文を表示",
+    hideOriginal: "原文を隠す"
   }
 };

@@ -52,7 +52,8 @@ const AppContent: React.FC = () => {
   });
 
   // Navigation State - Mutually Exclusive
-  const [activeOverlay, setActiveOverlay] = useState<'none' | 'history' | 'favorites'>('none');
+  // Changed default from 'none' to 'history'
+  const [activeOverlay, setActiveOverlay] = useState<'none' | 'history' | 'favorites'>('history');
   
   const [displayMode, setDisplayMode] = useState<DisplayMode>(DisplayMode.TRANSLATED_ONLY);
   const [targetLang, setTargetLang] = useState('zh-CN');
@@ -712,6 +713,7 @@ const AppContent: React.FC = () => {
           currentProject={currentProject} displayMode={displayMode} setDisplayMode={setDisplayMode} 
           onHome={handleCreateNew}
           onOpenSettings={() => setShowProjectSettingsModal(true)}
+          onSaveData={handleExportHistory}
         />
         
         <div className={`transition-all duration-300 ${activeOverlay !== 'none' ? 'scale-[0.98] opacity-50 overflow-hidden h-[calc(100vh-64px)]' : ''}`}>

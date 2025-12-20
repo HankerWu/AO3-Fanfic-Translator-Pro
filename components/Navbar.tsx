@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Globe, Heart, Library, Sun, Moon, Settings } from 'lucide-react';
+import { Languages, Heart, Library, Sun, Moon, Settings, Archive } from 'lucide-react';
 import { useTheme } from './ThemeContext';
 import { UI_STRINGS, LanguageCode } from '../services/i18n';
 import { DisplayMode } from '../types';
@@ -19,11 +19,12 @@ interface NavbarProps {
   setDisplayMode: (mode: DisplayMode) => void;
   onHome: () => void;
   onOpenSettings: () => void;
+  onSaveData: () => void;
 }
 
 const Navbar: React.FC<NavbarProps> = ({
   uiLang, setUiLang, showFavorites, setShowFavorites, showHistory, toggleHistory,
-  hasHistory, currentProject, displayMode, setDisplayMode, onHome, onOpenSettings
+  hasHistory, currentProject, displayMode, setDisplayMode, onHome, onOpenSettings, onSaveData
 }) => {
   const t = UI_STRINGS[uiLang];
   const { theme, toggleTheme } = useTheme();
@@ -65,7 +66,7 @@ const Navbar: React.FC<NavbarProps> = ({
         {/* Right: Global Actions */}
         <div className="flex items-center gap-2 md:gap-4 flex-shrink-0 w-[240px] justify-end">
           <div className="hidden sm:flex items-center gap-1 text-gray-500 dark:text-gray-400">
-            <Globe className="w-4 h-4" />
+            <Languages className="w-4 h-4" />
             <select 
               value={uiLang} 
               onChange={(e) => setUiLang(e.target.value as LanguageCode)}
@@ -76,8 +77,8 @@ const Navbar: React.FC<NavbarProps> = ({
               <option value="ja" className="bg-white dark:bg-[#1a1a1a] text-gray-900 dark:text-gray-100">日本語</option>
             </select>
           </div>
-
-          {/* Grouped Library Actions - Moved to LEFT of Theme Toggle */}
+          
+          {/* Grouped Library Actions */}
           <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-full p-1 border border-gray-200 dark:border-gray-700">
               <Tooltip content={t.favorites} position="bottom">
                 <button 
@@ -100,6 +101,15 @@ const Navbar: React.FC<NavbarProps> = ({
                 </button>
               </Tooltip>
           </div>
+
+          <Tooltip content={t.exportHistory} position="bottom">
+            <button 
+                onClick={onSaveData} 
+                className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
+            >
+                <Archive className="w-5 h-5" />
+            </button>
+          </Tooltip>
 
           <Tooltip content={theme === 'light' ? t.toggleThemeDark : t.toggleThemeLight} position="bottom">
             <button 

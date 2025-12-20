@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { TranslationBlock, DisplayMode, AVAILABLE_MODELS, ReadingSettings } from '../types';
 import { refineBlock } from '../services/geminiService';
-import { Edit2, Check, X, BookOpen, Heart, Bookmark, FileText, Sparkles, ArrowUp, List, ChevronLeft, ChevronRight, Upload, Heading, FileDown, Play, Loader2, Globe, Link as LinkIcon } from 'lucide-react';
+import { Edit2, Check, X, BookOpen, Heart, Bookmark, FileText, Sparkles, ArrowUp, List, ChevronLeft, ChevronRight, Upload, Heading, FileDown, Play, Loader2, Globe, Link as LinkIcon, Eye, EyeOff } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { UI_STRINGS, LanguageCode } from '../services/i18n';
 import Tooltip from './Tooltip';
@@ -72,6 +72,8 @@ const TranslationBlockItem = React.memo(({
   const [localNote, setLocalNote] = useState(block.note || '');
   const [refineInstruction, setRefineInstruction] = useState('');
   const [refineModel, setRefineModel] = useState(AVAILABLE_MODELS[0].id);
+  // State to toggle original text visibility in "Translated Only" mode
+  const [peekOriginal, setPeekOriginal] = useState(false);
 
   useEffect(() => { setLocalEditText(block.translated); }, [block.translated]);
   useEffect(() => { setLocalNote(block.note || ''); }, [block.note]);
@@ -95,8 +97,8 @@ const TranslationBlockItem = React.memo(({
       <div id={`block-${block.id}`} className="mt-12 mb-8 text-center scroll-mt-36 group relative">
           <div className="absolute right-0 top-0 opacity-0 group-hover:opacity-100 transition-opacity">
               <Tooltip content={t.convertToText}>
-                  <button onClick={() => onToggleBlockType(block.id)} className="p-1.5 bg-gray-100 dark:bg-gray-800 rounded text-gray-500 hover:text-gray-900 dark:hover:text-white">
-                      <Heading className="w-4 h-4" />
+                  <button onClick={() => onToggleBlockType(block.id)} className="p-1 bg-gray-100 dark:bg-gray-800 rounded text-gray-500 hover:text-gray-900 dark:hover:text-white">
+                      <Heading className="w-3 h-3" />
                   </button>
               </Tooltip>
           </div>
@@ -111,8 +113,12 @@ const TranslationBlockItem = React.memo(({
 
   if (block.type === 'header') {
       return isEditing ? (
-        <div className="max-w-xl mx-auto mb-8 p-4 bg-gray-50 dark:bg-gray-900 rounded-xl">
-             <input className="w-full bg-transparent border-b border-gray-300 dark:border-gray-700 font-serif text-2xl font-bold text-[#990000] outline-none mb-2" value={localEditText} onChange={(e) => setLocalEditText(e.target.value)} autoFocus />
+        <div className="max-w-xl mx-auto mb-8 p-6 rounded-2xl border border-white/20 shadow-2xl bg-white/70 dark:bg-black/60 backdrop-blur-xl transition-all">
+             {/* Show Original in Header Edit too */}
+             <div className="mb-4 text-sm font-serif text-gray-500 dark:text-gray-400 border-l-2 border-gray-300 dark:border-gray-600 pl-3 italic select-text">
+                {block.original}
+             </div>
+             <input className="w-full bg-transparent border-b border-gray-300 dark:border-gray-700 font-serif text-2xl font-bold text-[#990000] outline-none mb-4" value={localEditText} onChange={(e) => setLocalEditText(e.target.value)} autoFocus />
              <div className="flex gap-2 justify-end">
                 <button onClick={onCancelEdit} className="text-xs font-bold text-gray-500">{t.cancel}</button>
                 <button onClick={handleSave} className="text-xs font-bold text-blue-500">{t.save}</button>
@@ -128,36 +134,46 @@ const TranslationBlockItem = React.memo(({
   };
 
   const Toolbar = () => (
-    <div className="flex items-center justify-end gap-1 mb-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200" style={{ opacity: (isRefining || isEditing || isEditingNote) ? 1 : undefined }}>
-      <div className={`flex items-center gap-1 backdrop-blur-md shadow-sm border rounded-full px-2 py-1 ${isCustomTheme ? 'bg-white/30 dark:bg-black/30 border-white/20 dark:border-white/10 shadow-md' : 'bg-white/70 dark:bg-black/60 border-gray-200/50 dark:border-white/5'}`}>
+    <div className="flex items-center justify-end gap-0.5 mb-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200" style={{ opacity: (isRefining || isEditing || isEditingNote) ? 1 : undefined }}>
+      <div className={`flex items-center gap-0.5 backdrop-blur-md shadow-sm border rounded-full px-1.5 py-0.5 ${isCustomTheme ? 'bg-white/30 dark:bg-black/30 border-white/20 dark:border-white/10 shadow-md' : 'bg-white/70 dark:bg-black/60 border-gray-200/50 dark:border-white/5'}`}>
+        
+        {/* Toggle Original Text in Translated Only Mode */}
+        {isTranslatedOnly && (
+            <Tooltip content={peekOriginal ? t.hideOriginal : t.viewOriginal}>
+                <button onClick={(e) => { e.stopPropagation(); setPeekOriginal(!peekOriginal); }} className={`p-1 rounded-full hover:bg-white/50 dark:hover:bg-white/20 transition-colors ${peekOriginal ? 'text-indigo-500' : 'text-gray-600 dark:text-gray-300 hover:text-indigo-500'}`}>
+                    {peekOriginal ? <EyeOff className="w-3 h-3"/> : <Eye className="w-3 h-3"/>}
+                </button>
+            </Tooltip>
+        )}
+
         <Tooltip content={block.type === 'header' ? t.convertToText : t.convertToHeader}>
-            <button onClick={(e) => { e.stopPropagation(); onToggleBlockType(block.id); }} className={`p-1.5 rounded-full hover:bg-white/50 dark:hover:bg-white/20 transition-colors ${block.type === 'header' ? 'text-[#990000] dark:text-red-400' : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'}`}>
-                <Heading className="w-3.5 h-3.5"/>
+            <button onClick={(e) => { e.stopPropagation(); onToggleBlockType(block.id); }} className={`p-1 rounded-full hover:bg-white/50 dark:hover:bg-white/20 transition-colors ${block.type === 'header' ? 'text-[#990000] dark:text-red-400' : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'}`}>
+                <Heading className="w-3 h-3"/>
             </button>
         </Tooltip>
         <Tooltip content={t.actionFavorite}>
-            <button onClick={(e) => { e.stopPropagation(); onToggleFavorite(block.id); }} className={`p-1.5 rounded-full hover:bg-white/50 dark:hover:bg-white/20 transition-colors ${block.isFavorite ? 'text-red-500' : 'text-gray-600 dark:text-gray-300 hover:text-red-500'}`}>
-                <Heart className={`w-3.5 h-3.5 ${block.isFavorite ? 'fill-current' : ''}`}/>
+            <button onClick={(e) => { e.stopPropagation(); onToggleFavorite(block.id); }} className={`p-1 rounded-full hover:bg-white/50 dark:hover:bg-white/20 transition-colors ${block.isFavorite ? 'text-red-500' : 'text-gray-600 dark:text-gray-300 hover:text-red-500'}`}>
+                <Heart className={`w-3 h-3 ${block.isFavorite ? 'fill-current' : ''}`}/>
             </button>
         </Tooltip>
         <Tooltip content={t.actionNote}>
-            <button onClick={(e) => { e.stopPropagation(); onToggleNote(block.id); }} className={`p-1.5 rounded-full hover:bg-white/50 dark:hover:bg-white/20 transition-colors ${block.note ? 'text-yellow-600 dark:text-yellow-400' : 'text-gray-600 dark:text-gray-300 hover:text-yellow-500'}`}>
-                <FileText className={`w-3.5 h-3.5 ${block.note ? 'fill-current' : ''}`}/>
+            <button onClick={(e) => { e.stopPropagation(); onToggleNote(block.id); }} className={`p-1 rounded-full hover:bg-white/50 dark:hover:bg-white/20 transition-colors ${block.note ? 'text-yellow-600 dark:text-yellow-400' : 'text-gray-600 dark:text-gray-300 hover:text-yellow-500'}`}>
+                <FileText className={`w-3 h-3 ${block.note ? 'fill-current' : ''}`}/>
             </button>
         </Tooltip>
         <Tooltip content={t.actionRefine}>
-            <button onClick={(e) => { e.stopPropagation(); onToggleRefine(block.id); }} className={`p-1.5 rounded-full hover:bg-white/50 dark:hover:bg-white/20 transition-colors ${isRefining ? 'text-indigo-500' : 'text-gray-600 dark:text-gray-300 hover:text-indigo-500'}`}>
-                <Sparkles className="w-3.5 h-3.5"/>
+            <button onClick={(e) => { e.stopPropagation(); onToggleRefine(block.id); }} className={`p-1 rounded-full hover:bg-white/50 dark:hover:bg-white/20 transition-colors ${isRefining ? 'text-indigo-500' : 'text-gray-600 dark:text-gray-300 hover:text-indigo-500'}`}>
+                <Sparkles className="w-3 h-3"/>
             </button>
         </Tooltip>
         <Tooltip content={t.actionEdit}>
-            <button onClick={(e) => { e.stopPropagation(); onStartEdit(block.id, block.translated); }} className={`p-1.5 rounded-full hover:bg-white/50 dark:hover:bg-white/20 transition-colors ${isEditing ? 'text-blue-500' : 'text-gray-600 dark:text-gray-300 hover:text-blue-500'}`}>
-                <Edit2 className="w-3.5 h-3.5"/>
+            <button onClick={(e) => { e.stopPropagation(); onStartEdit(block.id, block.translated); }} className={`p-1 rounded-full hover:bg-white/50 dark:hover:bg-white/20 transition-colors ${isEditing ? 'text-blue-500' : 'text-gray-600 dark:text-gray-300 hover:text-blue-500'}`}>
+                <Edit2 className="w-3 h-3"/>
             </button>
         </Tooltip>
         <Tooltip content={t.actionBookmark}>
-            <button onClick={(e) => { e.stopPropagation(); onSetBookmark(block.id); }} className={`p-1.5 rounded-full transition-colors ${isBookmarked ? 'text-[#990000] dark:text-red-400' : 'text-gray-600 dark:text-gray-300 hover:text-[#990000] hover:bg-white/50 dark:hover:bg-white/20'}`}>
-                <Bookmark className={`w-3.5 h-3.5 ${isBookmarked ? 'fill-current' : ''}`}/>
+            <button onClick={(e) => { e.stopPropagation(); onSetBookmark(block.id); }} className={`p-1 rounded-full transition-colors ${isBookmarked ? 'text-[#990000] dark:text-red-400' : 'text-gray-600 dark:text-gray-300 hover:text-[#990000] hover:bg-white/50 dark:hover:bg-white/20'}`}>
+                <Bookmark className={`w-3 h-3 ${isBookmarked ? 'fill-current' : ''}`}/>
             </button>
         </Tooltip>
       </div>
@@ -184,9 +200,13 @@ const TranslationBlockItem = React.memo(({
   const ContentJsx = (
     <>
       {isEditing ? (
-        <div className="relative w-full">
-            <textarea className="w-full bg-white dark:bg-gray-800 p-4 border border-blue-200 dark:border-blue-900 rounded-xl outline-none font-serif text-lg md:text-xl text-gray-900 dark:text-gray-100 leading-loose resize-none shadow-sm focus:ring-2 focus:ring-blue-500/10 transition-all" style={{ minHeight: '150px' }} rows={Math.max(3, Math.ceil(block.translated.length / 50))} value={localEditText} onChange={(e) => setLocalEditText(e.target.value)} autoFocus />
-            <div className="flex gap-2 justify-end mt-2">
+        <div className="relative w-full p-6 rounded-2xl border border-white/20 shadow-2xl bg-white/70 dark:bg-black/60 backdrop-blur-xl transition-all">
+             {/* Auto-show Original in Edit Mode */}
+             <div className="mb-4 text-sm font-serif text-gray-500 dark:text-gray-400 border-l-2 border-gray-300 dark:border-gray-600 pl-3 italic select-text">
+                {block.original}
+             </div>
+            <textarea className="w-full bg-transparent border-none outline-none font-serif text-lg md:text-xl text-gray-900 dark:text-gray-100 leading-loose resize-none focus:ring-0 p-0" style={{ minHeight: '150px' }} rows={Math.max(3, Math.ceil(block.translated.length / 50))} value={localEditText} onChange={(e) => setLocalEditText(e.target.value)} autoFocus />
+            <div className="flex gap-2 justify-end mt-4">
               <button onClick={onCancelEdit} className="px-3 py-1.5 rounded-lg text-sm font-bold text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"><X className="w-4 h-4 inline mr-1"/> {t.cancel}</button>
               <button onClick={handleSave} className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold shadow-md shadow-blue-500/20 transition-all"><Check className="w-4 h-4 inline mr-1"/> {t.save}</button>
             </div>
@@ -197,6 +217,12 @@ const TranslationBlockItem = React.memo(({
           style={dynamicStyle}
           onClick={isTranslatedOnly ? () => onStartEdit(block.id, block.translated) : undefined}
         >
+            {/* Peek Original Feature for Translated Only Mode */}
+            {peekOriginal && isTranslatedOnly && (
+               <div className="mb-4 text-sm font-serif text-gray-500 dark:text-gray-400 border-l-2 border-gray-300 dark:border-gray-600 pl-3 italic animate-in slide-in-from-top-2 fade-in select-text" onClick={(e) => e.stopPropagation()}>
+                    {block.original}
+               </div>
+            )}
             <ReactMarkdown components={{ p: ({node, ...props}) => <p {...props} className={isTranslatedOnly ? "inline" : "mb-0"} /> }}>{block.translated}</ReactMarkdown>
         </div>
       )}
@@ -236,14 +262,21 @@ const TranslationBlockItem = React.memo(({
         id={`block-${block.id}`} 
         data-block-id={block.id} 
         style={{ marginBottom: `${blockSpacing}px` }}
-        className={`translation-block-item group transition-colors p-6 scroll-mt-32 ${isTranslatedOnly ? 'rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm bg-white dark:bg-[#1e1e1e]' : ''} ${isEditing ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''} ${isBookmarked ? 'ring-2 ring-red-100 dark:ring-red-900/30 bg-red-50/20' : ''}`}
+        // Reduced p-6 to p-4 for tighter blocks
+        className={`translation-block-item group transition-colors p-4 scroll-mt-32 ${isTranslatedOnly ? 'rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm bg-white dark:bg-[#1e1e1e]' : ''} ${isEditing ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''} ${isBookmarked ? 'ring-2 ring-red-100 dark:ring-red-900/30 bg-red-50/20' : ''}`}
     >
       {isBookmarked && <div className="absolute -left-[1px] top-6 w-1 h-8 bg-[#990000] rounded-r"></div>}
       <Toolbar />
       {isRefining && <RefinePopover />}
-      <div className={`grid gap-8 ${isSideBySide ? 'md:grid-cols-2 items-start' : 'grid-cols-1'}`}>
+      {/* 
+        Spacing Logic Updated: 
+        - Side-by-Side: gap-8 (standard)
+        - Interlinear: gap-1.5 (very tight, ~6px)
+      */}
+      <div className={`grid ${isSideBySide ? 'gap-8 md:grid-cols-2 items-start' : 'gap-1.5 grid-cols-1'}`}>
         {(showOriginal || isInterlinear) && (
-          <div className={`${isSideBySide ? 'bg-gray-50/50 dark:bg-gray-900/50 p-5 rounded-xl border border-gray-100 dark:border-gray-800 text-base leading-relaxed text-gray-600 dark:text-gray-400' : 'text-gray-500 dark:text-gray-400 text-sm mb-3 border-l-2 border-gray-200 dark:border-gray-700 pl-4'} font-serif text-justify select-text`}>
+          // Reduced margin-bottom (mb-3 -> mb-1) and internal padding for original text
+          <div className={`${isSideBySide ? 'bg-gray-50/50 dark:bg-gray-900/50 p-5 rounded-xl border border-gray-100 dark:border-gray-800 text-base leading-relaxed text-gray-600 dark:text-gray-400' : 'text-gray-500 dark:text-gray-400 text-sm mb-1 border-l-[1.5px] border-gray-200 dark:border-gray-700 pl-3'} font-serif text-justify select-text`}>
              <p lang="en">{block.original}</p>
           </div>
         )}
@@ -434,19 +467,18 @@ const TranslationReader: React.FC<TranslationReaderProps> = ({
       */}
       {isCustomTheme && readingSettings.customBgImage && (
           <div 
-            className="absolute inset-0 z-0 pointer-events-none"
+            className="fixed inset-0 z-0 pointer-events-none"
             style={{ 
                 backgroundImage: `url(${readingSettings.customBgImage})`,
                 backgroundSize: 'cover',
                 backgroundPosition: 'center',
-                backgroundAttachment: 'fixed' // Fixes the zoomed-in background on long pages
             }}
           ></div>
       )}
 
       {isCustomTheme && (
           <div 
-            className="absolute inset-0 z-[1] pointer-events-none transition-all duration-300"
+            className="fixed inset-0 z-[1] pointer-events-none transition-all duration-300"
             style={{ 
                 backgroundColor: theme === 'dark' ? `rgba(0,0,0,${readingSettings.overlayOpacity ?? 0.9})` : `rgba(255,255,255,${readingSettings.overlayOpacity ?? 0.9})`,
                 backdropFilter: `blur(${readingSettings.overlayBlur ?? 0}px)`,
@@ -649,7 +681,7 @@ const TranslationReader: React.FC<TranslationReaderProps> = ({
       </div>
 
       {/* Pagination Controls */}
-      <div className="py-8 px-6 border-t border-gray-100 dark:border-gray-800 flex justify-between items-center bg-white/50 dark:bg-black/20 backdrop-blur rounded-b-3xl">
+      <div className="py-6 px-6 border-t border-gray-100 dark:border-gray-800 flex justify-between items-center bg-transparent rounded-b-3xl">
           <button 
             onClick={() => { setCurrentChapterIdx(Math.max(0, currentChapterIdx - 1)); scrollToTop(); }}
             disabled={currentChapterIdx === 0}
