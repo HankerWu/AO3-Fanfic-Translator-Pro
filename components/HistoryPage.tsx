@@ -4,7 +4,7 @@ import { TranslationProject } from '../types';
 import { UI_STRINGS, LanguageCode } from '../services/i18n';
 import { 
   BookOpen, Clock, Search, Filter, Trash2, Upload, 
-  ArrowRight, Archive, CheckCircle2, Circle, X, PlayCircle, Plus, FileUp, AlertTriangle
+  ArrowRight, Archive, CheckCircle2, Circle, X, PlayCircle, Plus, FileUp, AlertTriangle, Globe, Link as LinkIcon
 } from 'lucide-react';
 import Tooltip from './Tooltip';
 
@@ -14,6 +14,7 @@ interface HistoryPageProps {
   onNavigateToProject: (project: TranslationProject) => void;
   onCreateNew: () => void;
   onTriggerUpdate: (projectId: string) => void;
+  onUpdateFromUrl: (projectId: string, url: string) => void;
   onDelete: (id: string) => void;
   onClear: () => void;
   onImport: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -27,6 +28,7 @@ const HistoryPage: React.FC<HistoryPageProps> = ({
   onNavigateToProject,
   onCreateNew,
   onTriggerUpdate,
+  onUpdateFromUrl,
   onDelete,
   onClear,
   onImport,
@@ -41,16 +43,20 @@ const HistoryPage: React.FC<HistoryPageProps> = ({
 
   // State for Custom Delete Modal
   const [projectToDelete, setProjectToDelete] = useState<string | null>(null);
+  
+  // State for Update Modal
+  const [updateModalProject, setUpdateModalProject] = useState<TranslationProject | null>(null);
+  const [updateUrlInput, setUpdateUrlInput] = useState('');
 
   // Derived Data: Split comma-separated fandoms
   const fandoms = useMemo(() => {
     const fs = new Set<string>();
     history.forEach(p => {
-        const rawFandom = p.metadata.fandom || 'Unknown';
+        const rawFandom = p.metadata.fandom || t.unknownFandom;
         rawFandom.split(',').forEach(f => fs.add(f.trim()));
     });
     return Array.from(fs).sort();
-  }, [history]);
+  }, [history, t.unknownFandom]);
 
   const filteredHistory = useMemo(() => {
     return history.filter(p => {
@@ -88,6 +94,12 @@ const HistoryPage: React.FC<HistoryPageProps> = ({
       }
   };
 
+  const handleUpdateClick = (e: React.MouseEvent, project: TranslationProject) => {
+      e.stopPropagation();
+      setUpdateUrlInput(project.metadata.url || '');
+      setUpdateModalProject(project);
+  };
+
   return (
     <div className="fixed inset-0 top-16 z-50 bg-[#faf9f6] dark:bg-[#121212] overflow-y-auto animate-in fade-in slide-in-from-bottom-4 duration-500 p-4 sm:p-8">
        {/* Hidden inputs for file ops */}
@@ -109,7 +121,7 @@ const HistoryPage: React.FC<HistoryPageProps> = ({
                         {t.libraryTitle}
                     </h1>
                     <p className="text-gray-500 dark:text-gray-400 mt-4 text-lg font-medium ml-1">
-                        {history.length} Projects
+                        {t.projectsCount.replace('{{count}}', history.length.toString())}
                     </p>
                 </div>
 
@@ -236,7 +248,7 @@ const HistoryPage: React.FC<HistoryPageProps> = ({
                                 <div className="flex gap-2">
                                     <Tooltip content={t.updateSourceDesc}>
                                         <button 
-                                            onClick={(e) => { e.stopPropagation(); onTriggerUpdate(project.id); }}
+                                            onClick={(e) => handleUpdateClick(e, project)}
                                             className="p-2 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
                                         >
                                             <FileUp className="w-4 h-4" />
@@ -252,7 +264,7 @@ const HistoryPage: React.FC<HistoryPageProps> = ({
                                         </button>
                                     </Tooltip>
                                     
-                                    <Tooltip content={!isComplete ? t.resume : "Read Project"}>
+                                    <Tooltip content={!isComplete ? t.resume : t.readProject}>
                                         <button 
                                             onClick={() => onNavigateToProject(project)}
                                             className={`p-2 rounded-lg flex items-center gap-2 text-xs font-bold transition-all ${!isComplete ? 'bg-green-600 text-white hover:bg-green-700 shadow-md' : 'bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:opacity-80'}`}
@@ -276,7 +288,7 @@ const HistoryPage: React.FC<HistoryPageProps> = ({
                       <Plus className="w-8 h-8 text-gray-400 group-hover:text-[#990000] dark:group-hover:text-red-400 transition-colors" />
                   </div>
                   <h3 className="font-bold text-gray-600 dark:text-gray-300 text-lg">{t.new}</h3>
-                  <p className="text-sm text-gray-400 text-center mt-2 max-w-[200px]">Start a new translation from file, text, or URL</p>
+                  <p className="text-sm text-gray-400 text-center mt-2 max-w-[200px]">{t.startNewDesc}</p>
                </div>
            </div>
        </div>
@@ -292,7 +304,7 @@ const HistoryPage: React.FC<HistoryPageProps> = ({
                      <div className="space-y-2">
                         <h3 className="text-lg font-bold text-gray-900 dark:text-white">{t.deleteProject}?</h3>
                         <p className="text-sm text-gray-500 dark:text-gray-400">
-                            {t.confirmDelete || "This action cannot be undone. Are you sure you want to permanently delete this project?"}
+                            {t.confirmDelete}
                         </p>
                      </div>
                      <div className="flex gap-3 w-full pt-2">
@@ -300,19 +312,87 @@ const HistoryPage: React.FC<HistoryPageProps> = ({
                              onClick={() => setProjectToDelete(null)}
                              className="flex-1 px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 font-bold rounded-xl hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
                          >
-                             {t.updateCancel || "Cancel"}
+                             {t.cancel}
                          </button>
                          <button 
                              onClick={confirmDelete}
                              className="flex-1 px-4 py-2 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 shadow-lg shadow-red-500/30 transition-colors"
                          >
-                             Delete
+                             {t.delete}
                          </button>
                      </div>
                  </div>
              </div>
          </div>
        )}
+
+       {/* Update Options Modal */}
+       {updateModalProject && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl shadow-2xl max-w-md w-full p-6 border border-gray-100 dark:border-gray-700">
+             <div className="flex justify-between items-start mb-4">
+                 <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">{t.updateModalTitle}</h3>
+                 <button onClick={() => setUpdateModalProject(null)}><X className="w-5 h-5 text-gray-400"/></button>
+             </div>
+             
+             {/* URL Input */}
+             <div className="mb-6 space-y-2">
+                 <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">AO3 URL</label>
+                 <div className="relative">
+                    <LinkIcon className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
+                    <input 
+                        type="text" 
+                        value={updateUrlInput}
+                        onChange={(e) => setUpdateUrlInput(e.target.value)}
+                        placeholder="https://archiveofourown.org/works/..."
+                        className="w-full pl-9 pr-4 py-2.5 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
+                    />
+                 </div>
+             </div>
+
+             <div className="space-y-3">
+                 <button 
+                    disabled={!updateUrlInput}
+                    onClick={() => { 
+                        if(updateUrlInput) onUpdateFromUrl(updateModalProject.id, updateUrlInput); 
+                        setUpdateModalProject(null); 
+                    }}
+                    className="w-full flex items-center gap-3 p-4 bg-blue-50 dark:bg-blue-900/10 hover:bg-blue-100 dark:hover:bg-blue-900/30 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl transition-colors text-left group"
+                 >
+                    <div className="p-2 bg-blue-100 dark:bg-blue-800 rounded-lg text-blue-600 dark:text-blue-300 group-hover:scale-110 transition-transform"><Globe className="w-5 h-5"/></div>
+                    <div>
+                        <div className="font-bold text-gray-900 dark:text-gray-100 text-sm">{t.updateOnline}</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">{t.updateOnlineDesc}</div>
+                    </div>
+                 </button>
+                 
+                 <div className="relative py-2">
+                    <div className="absolute inset-0 flex items-center" aria-hidden="true">
+                        <div className="w-full border-t border-gray-100 dark:border-gray-800"></div>
+                    </div>
+                    <div className="relative flex justify-center">
+                        <span className="bg-white dark:bg-[#1a1a1a] px-2 text-[10px] text-gray-400 uppercase">OR</span>
+                    </div>
+                 </div>
+
+                 <button 
+                    onClick={() => { 
+                        onTriggerUpdate(updateModalProject.id); 
+                        setUpdateModalProject(null); 
+                    }}
+                    className="w-full flex items-center gap-3 p-4 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition-colors text-left group"
+                 >
+                    <div className="p-2 bg-gray-200 dark:bg-gray-700 rounded-lg text-gray-600 dark:text-gray-300 group-hover:scale-110 transition-transform"><Upload className="w-5 h-5"/></div>
+                    <div>
+                        <div className="font-bold text-gray-900 dark:text-gray-100 text-sm">{t.updateUpload}</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">{t.updateUploadDesc}</div>
+                    </div>
+                 </button>
+             </div>
+             <p className="mt-4 text-[10px] text-gray-400 text-center">{t.proxyDisclaimer}</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

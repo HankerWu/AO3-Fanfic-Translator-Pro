@@ -64,7 +64,8 @@ export const sanitizeProjectData = (project: TranslationProject): TranslationPro
       blocks: reindexedBlocks,
       metadata: {
           ...project.metadata,
-          tags: project.metadata.tags || []
+          tags: project.metadata.tags || [],
+          url: project.metadata.url || '' // Ensure URL field exists
       }
   };
 };
@@ -142,7 +143,21 @@ const parseHTML = (htmlString: string) => {
   const author = cleanText(doc.querySelector('.meta .byline a[rel="author"]')?.textContent) || 
                  cleanText(doc.querySelector('a[rel="author"]')?.textContent) || 
                  cleanText(doc.querySelector('.byline')?.textContent) || "Unknown Author";
-                 
+  
+  // Extract URL
+  let url = "";
+  const canonicalLink = doc.querySelector('link[rel="canonical"]');
+  if (canonicalLink) {
+      url = canonicalLink.getAttribute('href') || "";
+  } else {
+      const titleLink = doc.querySelector('h1 a');
+      if (titleLink) {
+          const href = titleLink.getAttribute('href');
+          if (href && href.startsWith('http')) url = href;
+          else if (href) url = `https://archiveofourown.org${href}`;
+      }
+  }
+
   let fandom = "Unknown Fandom";
   const tags: string[] = [];
 
@@ -215,12 +230,12 @@ const parseHTML = (htmlString: string) => {
   });
 
   if (blocks.length === 0) {
-      return { title, author, fandom, tags, blocks: splitTextIntoBlocks(doc.body.textContent || "") };
+      return { title, author, fandom, tags, url, blocks: splitTextIntoBlocks(doc.body.textContent || "") };
   }
 
   const reindexedBlocks = recalculateChapterIndices(blocks);
 
-  return { title, author, fandom, tags, blocks: reindexedBlocks };
+  return { title, author, fandom, tags, url, blocks: reindexedBlocks };
 };
 
 const extractBlocksFromNode = (root: Element, blocks: TranslationBlock[], chapterIndex: number) => {
@@ -266,7 +281,7 @@ const extractBlocksFromNode = (root: Element, blocks: TranslationBlock[], chapte
     }
 };
 
-export const parseUploadedFile = async (file: File): Promise<{ title: string, author: string, fandom: string, tags: string[], blocks: TranslationBlock[] }> => {
+export const parseUploadedFile = async (file: File): Promise<{ title: string, author: string, fandom: string, tags: string[], url?: string, blocks: TranslationBlock[] }> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -291,8 +306,64 @@ const fallbackParse = (filename: string, content: string) => {
         author: "Unknown",
         fandom: "Unknown",
         tags: [],
+        url: "",
         blocks: indexedBlocks
     };
+};
+
+/**
+ * Attempts to fetch AO3 content using multiple public CORS proxies.
+ * Note: AO3 often blocks these. This is a best-effort attempt.
+ */
+export const fetchAO3FromProxy = async (url: string): Promise<{ title: string, author: string, fandom: string, tags: string[], url: string, blocks: TranslationBlock[] }> => {
+    // Add view_full_work=true to ensure we get all chapters if it's a multi-chapter URL
+    let targetUrl = url;
+    if (url.includes('archiveofourown.org/works/') && !url.includes('view_full_work=true')) {
+        targetUrl = url.includes('?') ? `${url}&view_full_work=true` : `${url}?view_full_work=true`;
+    }
+
+    // Try a list of proxies in order. 
+    // Corsproxy.io is often more robust for headers than allorigins.
+    const proxies = [
+        `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`,
+        `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`
+    ];
+
+    let lastError: any;
+
+    for (const proxyUrl of proxies) {
+        try {
+            const response = await fetch(proxyUrl);
+            if (!response.ok) {
+                // If 403/429, likely blocked by AO3 via Cloudflare
+                continue;
+            }
+            
+            const htmlContent = await response.text();
+            
+            // Check if we actually got AO3 content or a Cloudflare challenge page
+            if (htmlContent.includes('Attention Required! | Cloudflare') || htmlContent.includes('Just a moment...')) {
+                throw new Error("Blocked by Cloudflare");
+            }
+
+            const result = parseHTML(htmlContent);
+            // Basic validation to see if parse worked
+            if (!result.title || result.title === "Untitled HTML") {
+                 // Try next proxy
+                 continue;
+            }
+
+            if (!result.url) result.url = url;
+            return result;
+
+        } catch (err) {
+            lastError = err;
+            console.warn(`Proxy failed: ${proxyUrl}`, err);
+        }
+    }
+
+    // If we get here, all proxies failed
+    throw new Error("AO3 Security blocked all proxy attempts. Please use 'File Upload' instead.");
 };
 
 export const exportTranslation = (project: TranslationProject, format: 'markdown' | 'html' | 'txt') => {
@@ -301,7 +372,7 @@ export const exportTranslation = (project: TranslationProject, format: 'markdown
   const clean = (t: string) => t.replace(/^[#\s]+/, '');
 
   if (format === 'markdown') {
-    content = `# ${project.metadata.title}\n**Author:** ${project.metadata.author}\n---\n\n`;
+    content = `# ${project.metadata.title}\n**Author:** ${project.metadata.author}\n**Source:** ${project.metadata.url || 'N/A'}\n---\n\n`;
     project.blocks.forEach(block => {
       const text = block.translated || block.original;
       if (block.type === 'header') content += `## ${clean(text)}\n\n`;

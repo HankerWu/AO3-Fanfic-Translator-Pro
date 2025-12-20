@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { TranslationProject, TranslationBlock, DisplayMode, SUPPORTED_LANGUAGES, AVAILABLE_MODELS, FicMetadata, DEFAULT_PROMPT, DEFAULT_REFINE_PROMPT } from './types';
+import { TranslationProject, TranslationBlock, DisplayMode, SUPPORTED_LANGUAGES, AVAILABLE_MODELS, FicMetadata, DEFAULT_PROMPT, DEFAULT_REFINE_PROMPT, ReadingSettings, BackupSettings } from './types';
 import { identifyFandom, translateBatch } from './services/geminiService';
-import { splitTextIntoBlocks, generateId, exportTranslation, parseUploadedFile, sanitizeProjectData, mergeProjectBlocks, calculateSimilarity, recalculateChapterIndices } from './services/utils';
+import { splitTextIntoBlocks, generateId, exportTranslation, parseUploadedFile, sanitizeProjectData, mergeProjectBlocks, calculateSimilarity, recalculateChapterIndices, fetchAO3FromProxy } from './services/utils';
 import { Download, Play, Pause, Loader2, Settings as SettingsIcon, Sliders, ChevronDown } from 'lucide-react';
 import TranslationReader from './components/TranslationReader';
 import HistoryPage from './components/HistoryPage';
@@ -11,12 +11,15 @@ import Navbar from './components/Navbar';
 import TranslationInput from './components/TranslationInput';
 import ProjectSettingsModal from './components/ProjectSettingsModal';
 import { ThemeProvider } from './components/ThemeContext';
+import { ToastProvider, useToast } from './components/ToastContext';
 import { UI_STRINGS, LanguageCode } from './services/i18n';
 import Tooltip from './components/Tooltip';
 
-const Main: React.FC = () => {
+// Wrapper component to use the hook
+const AppContent: React.FC = () => {
   const [uiLang, setUiLang] = useState<LanguageCode>('zh'); 
   const t = UI_STRINGS[uiLang];
+  const { showToast } = useToast();
 
   const [inputUrl, setInputUrl] = useState('');
   const [inputText, setInputText] = useState('');
@@ -27,6 +30,25 @@ const Main: React.FC = () => {
   const [currentProject, setCurrentProject] = useState<TranslationProject | null>(null);
   const [history, setHistory] = useState<TranslationProject[]>([]);
   
+  // New: Reading & Backup Settings
+  const [readingSettings, setReadingSettings] = useState<ReadingSettings>(() => {
+     const saved = localStorage.getItem('ao3_reading_settings');
+     return saved ? JSON.parse(saved) : { 
+         fontSize: 18, 
+         lineHeight: 1.8, 
+         blockSpacing: 24, 
+         fontFamily: 'serif', 
+         maxWidth: 70, 
+         paperTheme: 'default',
+         overlayOpacity: 0.9, // Default roughly 90% opacity
+         overlayBlur: 0       // Default no blur
+     };
+  });
+  const [backupSettings, setBackupSettings] = useState<BackupSettings>(() => {
+      const saved = localStorage.getItem('ao3_backup_settings');
+      return saved ? JSON.parse(saved) : { autoBackupEnabled: false, backupIntervalMinutes: 30 };
+  });
+
   // Navigation State - Mutually Exclusive
   const [activeOverlay, setActiveOverlay] = useState<'none' | 'history' | 'favorites'>('none');
   
@@ -52,8 +74,9 @@ const Main: React.FC = () => {
   // Update File Input State
   const updateInputRef = useRef<HTMLInputElement>(null);
   const [updatingProjectId, setUpdatingProjectId] = useState<string | null>(null);
+  const [isUpdatingFromUrl, setIsUpdatingFromUrl] = useState(false);
 
-  // History Persistence
+  // Persistence Effects
   useEffect(() => {
     const saved = localStorage.getItem('ao3_translator_history');
     if (saved) {
@@ -64,7 +87,56 @@ const Main: React.FC = () => {
     }
   }, []);
 
-  useEffect(() => { localStorage.setItem('ao3_translator_history', JSON.stringify(history)); }, [history]);
+  useEffect(() => { 
+      try {
+        localStorage.setItem('ao3_translator_history', JSON.stringify(history));
+      } catch (e) { console.error("Failed to save history:", e); }
+  }, [history]);
+
+  useEffect(() => { 
+      try {
+        localStorage.setItem('ao3_reading_settings', JSON.stringify(readingSettings));
+      } catch (e) { 
+          console.error("Failed to save reading settings (likely image too big):", e);
+          showToast("Settings too large to save (Background Image).", "error");
+      }
+  }, [readingSettings]);
+
+  useEffect(() => { 
+      try {
+        localStorage.setItem('ao3_backup_settings', JSON.stringify(backupSettings)); 
+      } catch (e) { console.error("Failed to save backup settings:", e); }
+  }, [backupSettings]);
+
+  // Auto Backup Interval
+  useEffect(() => {
+      if (!backupSettings.autoBackupEnabled) return;
+
+      const intervalId = setInterval(() => {
+          const now = Date.now();
+          const lastBackup = backupSettings.lastBackupTime || 0;
+          const intervalMs = backupSettings.backupIntervalMinutes * 60 * 1000;
+
+          if (now - lastBackup > intervalMs && history.length > 0) {
+              const dataStr = JSON.stringify(history);
+              const blob = new Blob([dataStr], { type: 'application/json' });
+              const url = URL.createObjectURL(blob);
+              
+              const downloadAnchorNode = document.createElement('a');
+              downloadAnchorNode.setAttribute("href", url);
+              downloadAnchorNode.setAttribute("download", `ao3_auto_backup_${new Date().toISOString().slice(0,10)}.json`);
+              document.body.appendChild(downloadAnchorNode);
+              downloadAnchorNode.click();
+              downloadAnchorNode.remove();
+              URL.revokeObjectURL(url);
+              
+              setBackupSettings(prev => ({ ...prev, lastBackupTime: now }));
+              showToast(t.toastAutoBackup, "info");
+          }
+      }, 60000); 
+
+      return () => clearInterval(intervalId);
+  }, [backupSettings, history]);
 
   // Sync Project to Settings
   useEffect(() => {
@@ -84,15 +156,8 @@ const Main: React.FC = () => {
     }
   }, [currentProject]);
 
-  // Navigation Handlers (Mutually Exclusive)
-  const toggleHistory = () => {
-    setActiveOverlay(prev => prev === 'history' ? 'none' : 'history');
-  };
-
-  const toggleFavorites = () => {
-    setActiveOverlay(prev => prev === 'favorites' ? 'none' : 'favorites');
-  };
-
+  const toggleHistory = () => setActiveOverlay(prev => prev === 'history' ? 'none' : 'history');
+  const toggleFavorites = () => setActiveOverlay(prev => prev === 'favorites' ? 'none' : 'favorites');
   const closeOverlays = () => setActiveOverlay('none');
 
   const generateSmartPrompt = (meta: any) => {
@@ -108,11 +173,13 @@ const Main: React.FC = () => {
         setDetectedMeta(parsed);
         setCustomPrompt(generateSmartPrompt(parsed));
         if (parsed.tags.length > 0) setShowSettings(true);
-      } catch (error) { console.error("File parse error", error); }
+        showToast(t.toastFileParsed, "success");
+      } catch (error) { 
+          console.error("File parse error", error); 
+          showToast(t.toastFileError, "error");
+      }
     }
   };
-
-  const handleStop = () => { stopProcessingRef.current = true; setIsProcessing(false); };
 
   const handleSaveProjectSettings = () => {
     if (!currentProject) return;
@@ -135,23 +202,20 @@ const Main: React.FC = () => {
     setCurrentProject(updated);
     setHistory(prev => prev.map(p => p.id === updated.id ? updated : p));
     setShowProjectSettingsModal(false);
+    showToast(t.toastSettingsSaved, "success");
   };
   
   const handleToggleBlockType = (blockId: string) => {
       if (!currentProject) return;
-      
       const newBlocks = currentProject.blocks.map(b => 
           b.id === blockId ? { ...b, type: b.type === 'header' ? 'text' : 'header' } : b
       );
-      
       const reindexedBlocks = recalculateChapterIndices(newBlocks as TranslationBlock[]);
-      
       const updatedProject = {
           ...currentProject,
           blocks: reindexedBlocks,
           lastModified: Date.now()
       };
-      
       setCurrentProject(updatedProject);
       setHistory(prev => prev.map(p => p.id === updatedProject.id ? updatedProject : p));
   };
@@ -189,14 +253,25 @@ const Main: React.FC = () => {
       } else {
         // New Project
         setIsProcessing(true);
-        let blocks, title, author, fandom, tags;
+        let blocks, title, author, fandom, tags, url;
         if (inputType === 'file' && inputFile) {
           const parsed = detectedMeta || await parseUploadedFile(inputFile);
-          ({ blocks, title, author, fandom, tags } = parsed);
+          ({ blocks, title, author, fandom, tags, url } = parsed);
         } else if (inputType === 'text' && inputText) {
-          title = inputText.split('\n')[0].slice(0, 50) || "Pasted Fanfic";
-          author = "Unknown"; tags = []; fandom = "Unknown";
+          title = inputText.split('\n')[0].slice(0, 50) || t.defaultTitle;
+          author = t.unknown; tags = []; fandom = t.unknownFandom;
           blocks = splitTextIntoBlocks(inputText);
+        } else if (inputType === 'url' && inputUrl) {
+           try {
+               const parsed = await fetchAO3FromProxy(inputUrl);
+               ({ blocks, title, author, fandom, tags, url } = parsed);
+           } catch(e: any) {
+               console.error("Fetch failed", e);
+               // IMPORTANT: Use specific translated toast message for fetch failure
+               showToast(t.toastFetchError, "error");
+               setIsProcessing(false);
+               return;
+           }
         } else { setIsProcessing(false); return; }
 
         if (fandom === "Unknown" && targetLang !== 'original') fandom = await identifyFandom(blocks.slice(0, 3).map((b: any) => b.original).join('\n'), selectedModel);
@@ -215,6 +290,7 @@ const Main: React.FC = () => {
               includeTags, 
               tagInstruction, 
               glossary, 
+              url: url || inputUrl,
               date: new Date().toISOString() 
           },
           blocks, lastModified: Date.now(),
@@ -302,7 +378,7 @@ const Main: React.FC = () => {
             setCurrentProject({ ...projectToUse, blocks: [...translatedBlocks] });
             stopProcessingRef.current = true;
             setIsProcessing(false);
-            alert(`${t.errorGeneric}\n\nReason: ${err.message || "Unknown API Error"}\n\nThe translation has been paused. You can click 'Resume' to try again later.`);
+            showToast(`${t.errorGeneric}: ${err.message}`, "error");
             break; 
         }
 
@@ -313,7 +389,7 @@ const Main: React.FC = () => {
       }
     } catch (e) { 
         console.error("Critical App Error", e);
-        alert(t.errorGeneric); 
+        showToast(t.errorGeneric, "error"); 
     } finally { 
         setIsProcessing(false); 
         stopProcessingRef.current = false; 
@@ -385,20 +461,47 @@ const Main: React.FC = () => {
                           const newItems = (imported as TranslationProject[]).filter(p => !existingIds.has(p.id)).map(sanitizeProjectData);
                           return [...newItems, ...prev];
                       });
-                  } else { alert(t.errorImport); }
-              } catch (err) { alert(t.errorImport); }
+                      showToast(t.toastImportSuccess, "success");
+                  } else { showToast(t.errorImport, "error"); }
+              } catch (err) { showToast(t.errorImport, "error"); }
           };
       }
   };
 
-  const handleExportHistory = () => {
-      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(history));
+  const handleExportHistory = async () => {
+      const dataStr = JSON.stringify(history);
+      const fileName = `ao3_backup_${new Date().toISOString().slice(0,10)}.json`;
+      
+      try {
+          const isIframe = window.self !== window.top;
+          if ('showSaveFilePicker' in window && !isIframe) {
+              const handle = await (window as any).showSaveFilePicker({
+                  suggestedName: fileName,
+                  types: [{
+                      description: 'JSON Backup File',
+                      accept: { 'application/json': ['.json'] },
+                  }],
+              });
+              const writable = await handle.createWritable();
+              await writable.write(dataStr);
+              await writable.close();
+              showToast(t.toastBackupSaved, "success");
+              return; 
+          }
+      } catch (err: any) {
+          if (err.name === 'AbortError') return;
+      }
+
+      const blob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
       const downloadAnchorNode = document.createElement('a');
-      downloadAnchorNode.setAttribute("href", dataStr);
-      downloadAnchorNode.setAttribute("download", "ao3_translator_data_backup.json");
+      downloadAnchorNode.setAttribute("href", url);
+      downloadAnchorNode.setAttribute("download", fileName);
       document.body.appendChild(downloadAnchorNode);
       downloadAnchorNode.click();
       downloadAnchorNode.remove();
+      URL.revokeObjectURL(url);
+      showToast(t.toastBackupSaved, "success");
   };
 
   const handleExportCurrent = (format: 'markdown' | 'html') => {
@@ -408,6 +511,51 @@ const Main: React.FC = () => {
   const triggerUpdateProject = (projectId: string) => {
       setUpdatingProjectId(projectId);
       setTimeout(() => updateInputRef.current?.click(), 100);
+  };
+
+  const handleUpdateFromUrl = async (projectId: string, url: string) => {
+      setIsUpdatingFromUrl(true);
+      try {
+          const newParsed = await fetchAO3FromProxy(url);
+          const oldProject = history.find(p => p.id === projectId);
+          
+          if (!oldProject) { setIsUpdatingFromUrl(false); return; }
+
+          const similarity = calculateSimilarity(oldProject.blocks, newParsed.blocks);
+          
+          let proceed = true;
+          if (similarity < 20) {
+             proceed = true; // Bypassing confirm for now, relying on Toast info
+             showToast(t.updateWarningMsg.replace('{{percent}}', similarity.toString()), "info");
+          }
+
+          if (proceed) {
+             const mergedBlocks = mergeProjectBlocks(oldProject.blocks, newParsed.blocks);
+             const updatedProject: TranslationProject = {
+                  ...oldProject,
+                  blocks: mergedBlocks,
+                  metadata: {
+                      ...oldProject.metadata,
+                      title: newParsed.title || oldProject.metadata.title,
+                      tags: (newParsed.tags && newParsed.tags.length > 0) ? newParsed.tags : oldProject.metadata.tags,
+                      url: newParsed.url || url || oldProject.metadata.url
+                  },
+                  lastModified: Date.now()
+             };
+
+             setHistory(prev => prev.map(p => p.id === projectId ? updatedProject : p));
+             if (currentProject && currentProject.id === projectId) {
+                 setCurrentProject(updatedProject);
+             }
+             showToast(t.updateSuccess, "success");
+          }
+      } catch (err: any) {
+          console.error(err);
+          // Show specific robust error message
+          showToast(t.toastFetchError, "error");
+      } finally {
+          setIsUpdatingFromUrl(false);
+      }
   };
 
   const handleUpdateFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -444,11 +592,11 @@ const Main: React.FC = () => {
              if (currentProject && currentProject.id === updatingProjectId) {
                  setCurrentProject(updatedProject);
              }
-             alert(t.updateSuccess);
+             showToast(t.updateSuccess, "success");
           }
       } catch (err) {
           console.error(err);
-          alert(t.errorGeneric);
+          showToast(t.errorGeneric, "error");
       } finally {
           setUpdatingProjectId(null);
           if (updateInputRef.current) updateInputRef.current.value = '';
@@ -484,6 +632,7 @@ const Main: React.FC = () => {
              bookmarkBlockId={currentProject.bookmarkBlockId}
              title={currentProject.metadata.title}
              author={currentProject.metadata.author}
+             url={currentProject.metadata.url} 
              percentComplete={progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0}
              isProcessing={isProcessing}
              onUpdateBlock={handleUpdateBlock} onLoadingStateChange={handleBlockLoading} 
@@ -493,20 +642,21 @@ const Main: React.FC = () => {
              onToggleBlockType={handleToggleBlockType}
              onOpenSettings={() => setShowProjectSettingsModal(true)}
              onUpdateSource={() => triggerUpdateProject(currentProject.id)}
+             onUpdateFromUrl={(url) => handleUpdateFromUrl(currentProject.id, url)}
+             isUpdatingFromUrl={isUpdatingFromUrl}
              onExport={handleExportCurrent}
              onContinue={handleStart}
              lang={uiLang}
+             readingSettings={readingSettings} 
         />
       );
     }
   };
 
   return (
-    <ThemeProvider>
       <div className="min-h-screen bg-[#faf9f6] dark:bg-[#121212] text-gray-800 dark:text-gray-200 font-sans selection:bg-red-100 dark:selection:bg-red-900/30 selection:text-red-900 transition-colors">
         <input type="file" ref={updateInputRef} onChange={handleUpdateFileSelect} accept=".html,.htm,.txt" className="hidden" />
         
-        {/* Navbar: Always visible, high z-index, no opacity fade */}
         <Navbar 
           uiLang={uiLang} setUiLang={setUiLang} 
           showFavorites={activeOverlay === 'favorites'} setShowFavorites={toggleFavorites} 
@@ -517,7 +667,6 @@ const Main: React.FC = () => {
           onOpenSettings={() => setShowProjectSettingsModal(true)}
         />
         
-        {/* Content Wrapper: Applies scale/fade effect when overlay is active */}
         <div className={`transition-all duration-300 ${activeOverlay !== 'none' ? 'scale-[0.98] opacity-50 overflow-hidden h-[calc(100vh-64px)]' : ''}`}>
            <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
              {renderMainContent()}
@@ -530,7 +679,11 @@ const Main: React.FC = () => {
               onNavigateToProject={(p) => { setCurrentProject(p); closeOverlays(); }}
               onCreateNew={handleCreateNew}
               onTriggerUpdate={triggerUpdateProject}
-              onDelete={deleteHistoryItem} onClear={() => { if(confirm(t.confirmClear)) { setHistory([]); setCurrentProject(null); } }}
+              onUpdateFromUrl={handleUpdateFromUrl}
+              onDelete={deleteHistoryItem} 
+              onClear={() => { 
+                  if(confirm(t.confirmClear)) { setHistory([]); setCurrentProject(null); }
+              }}
               onImport={handleImportHistory} onExport={handleExportHistory} onClose={closeOverlays}
            />
         )}
@@ -549,7 +702,6 @@ const Main: React.FC = () => {
             />
         )}
 
-        {/* Global Settings Modal */}
         <ProjectSettingsModal 
            uiLang={uiLang} isOpen={showProjectSettingsModal} onClose={() => setShowProjectSettingsModal(false)} onSave={handleSaveProjectSettings}
            fandom={currentProject?.metadata.fandom || detectedMeta?.fandom}
@@ -557,11 +709,22 @@ const Main: React.FC = () => {
                selectedModel, setSelectedModel, targetLang, setTargetLang, batchSize, setBatchSize, contextWindow, setContextWindow, 
                customPrompt, setCustomPrompt, refinePromptTemplate, setRefinePromptTemplate, glossary, setGlossary, includeTags, setIncludeTags, tagInstruction, setTagInstruction 
            }}
+           readingSettings={readingSettings} setReadingSettings={setReadingSettings}
+           backupSettings={backupSettings} setBackupSettings={setBackupSettings} onBackupNow={handleExportHistory}
            onRestorePrompt={() => { setCustomPrompt(DEFAULT_PROMPT); setRefinePromptTemplate(DEFAULT_REFINE_PROMPT); }}
         />
       </div>
-    </ThemeProvider>
   );
 };
+
+const Main: React.FC = () => {
+    return (
+        <ThemeProvider>
+            <ToastProvider>
+                <AppContent />
+            </ToastProvider>
+        </ThemeProvider>
+    );
+}
 
 export default Main;

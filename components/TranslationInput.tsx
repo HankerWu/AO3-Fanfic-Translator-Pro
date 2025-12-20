@@ -4,6 +4,7 @@ import { Upload, FileText, Link as LinkIcon, AlertCircle, ChevronDown, ChevronUp
 import { UI_STRINGS, LanguageCode } from '../services/i18n';
 import { SUPPORTED_LANGUAGES, AVAILABLE_MODELS } from '../types';
 import { generateFandomGlossary } from '../services/geminiService';
+import { useToast } from './ToastContext';
 
 interface InputProps {
   uiLang: LanguageCode;
@@ -42,6 +43,7 @@ interface InputProps {
 
 const TranslationInput: React.FC<InputProps> = (props) => {
   const t = UI_STRINGS[props.uiLang];
+  const { showToast } = useToast();
   const [isGeneratingGlossary, setIsGeneratingGlossary] = useState(false);
   const [enableTranslation, setEnableTranslation] = useState(props.targetLang !== 'original');
   const [lastSelectedLang, setLastSelectedLang] = useState('zh-CN');
@@ -64,14 +66,23 @@ const TranslationInput: React.FC<InputProps> = (props) => {
          const result = await generateFandomGlossary(props.detectedMeta.fandom, props.targetLang, props.selectedModel);
          if (result) {
              props.setGlossary(result);
+             showToast(t.toastGlossaryAppended, "success");
          } else {
-             alert("Glossary generation failed. Please check your API Quota or try a different model.");
+             showToast("Glossary generation failed. Please check quota.", "error");
          }
      } catch (e) {
-         alert("Glossary generation error.");
+         showToast("Glossary generation error.", "error");
      } finally {
          setIsGeneratingGlossary(false);
      }
+  };
+
+  // Determine button text based on state
+  const getButtonText = () => {
+      if (props.isProcessing) {
+          return enableTranslation ? t.translating : t.processing;
+      }
+      return enableTranslation ? t.start : t.startReading;
   };
 
   return (
@@ -112,7 +123,10 @@ const TranslationInput: React.FC<InputProps> = (props) => {
                     {props.detectedMeta ? props.detectedMeta.title : (props.inputFile ? props.inputFile.name : t.uploadPlaceholder)}
                   </div>
                   <p className="text-sm text-gray-400 dark:text-gray-500">
-                    {props.detectedMeta ? `Detected: ${props.detectedMeta.tags.length} tags, ${props.detectedMeta.fandom}` : t.supportedFormats}
+                    {props.detectedMeta 
+                        ? t.detectedMeta.replace('{{tags}}', props.detectedMeta.tags.length.toString()).replace('{{fandom}}', props.detectedMeta.fandom)
+                        : t.supportedFormats
+                    }
                   </p>
                 </div>
               </label>
@@ -148,7 +162,7 @@ const TranslationInput: React.FC<InputProps> = (props) => {
                   <div className="w-full border-t border-gray-100 dark:border-gray-800"></div>
               </div>
               <div className="relative flex justify-center">
-                  <span className="bg-white dark:bg-[#1a1a1a] px-3 text-xs font-bold text-gray-400 uppercase tracking-widest">Controls</span>
+                  <span className="bg-white dark:bg-[#1a1a1a] px-3 text-xs font-bold text-gray-400 uppercase tracking-widest">{t.controls}</span>
               </div>
           </div>
 
@@ -205,7 +219,7 @@ const TranslationInput: React.FC<InputProps> = (props) => {
                     >
                     <span className="flex items-center gap-2">
                         <Sliders className="w-4 h-4" /> {t.advancedSettings}
-                        {props.detectedMeta && props.detectedMeta.tags.length > 0 && <span className="bg-red-50 dark:bg-red-900/20 text-[#990000] dark:text-red-400 px-2 py-0.5 rounded-lg border border-red-100 dark:border-red-900/50">{props.detectedMeta.tags.length} Tags</span>}
+                        {props.detectedMeta && props.detectedMeta.tags.length > 0 && <span className="bg-red-50 dark:bg-red-900/20 text-[#990000] dark:text-red-400 px-2 py-0.5 rounded-lg border border-red-100 dark:border-red-900/50">{props.detectedMeta.tags.length} {t.tagsLabel}</span>}
                     </span>
                     {props.showSettings ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                     </button>
@@ -281,7 +295,7 @@ const TranslationInput: React.FC<InputProps> = (props) => {
             className={`h-16 w-full rounded-2xl font-black uppercase tracking-widest text-lg shadow-xl shadow-red-900/10 flex items-center justify-center gap-3 transition-all transform active:scale-[0.98] ${props.isProcessing ? 'bg-gray-300 dark:bg-gray-700 cursor-not-allowed text-white' : enableTranslation ? 'bg-gradient-to-r from-[#990000] to-[#cc0000] text-white hover:shadow-red-900/20' : 'bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:shadow-lg'}`}
           >
             {props.isProcessing ? <Loader2 className="animate-spin w-6 h-6"/> : enableTranslation ? <ArrowRight className="w-6 h-6"/> : <BookOpen className="w-6 h-6"/>}
-            {props.isProcessing ? t.translating : enableTranslation ? t.start : t.startReading}
+            {getButtonText()}
           </button>
         </div>
       </div>

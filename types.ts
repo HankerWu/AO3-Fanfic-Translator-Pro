@@ -11,6 +11,24 @@ export interface TranslationBlock {
   chapterIndex?: number; // New: For pagination
 }
 
+export interface ReadingSettings {
+  fontSize: number;
+  lineHeight: number;
+  blockSpacing: number; // New: Spacing between paragraphs
+  fontFamily: 'serif' | 'sans';
+  maxWidth: number;
+  paperTheme: 'default' | 'sepia' | 'gray' | 'green' | 'midnight' | 'custom';
+  customBgImage?: string; // Base64 string for custom background
+  overlayOpacity?: number; // 0.0 to 1.0 (How transparent the paper is)
+  overlayBlur?: number; // 0 to 20px (Backdrop blur amount)
+}
+
+export interface BackupSettings {
+  autoBackupEnabled: boolean;
+  backupIntervalMinutes: number;
+  lastBackupTime?: number;
+}
+
 export interface FicMetadata {
   title: string;
   author: string;
