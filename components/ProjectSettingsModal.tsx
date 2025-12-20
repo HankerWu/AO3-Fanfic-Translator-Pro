@@ -305,7 +305,8 @@ const ProjectSettingsModal: React.FC<SettingsProps> = ({
                             className="absolute inset-0 transition-all duration-300"
                             style={{ 
                                 backgroundColor: theme === 'dark' ? `rgba(0,0,0,${readingSettings.overlayOpacity ?? 0.9})` : `rgba(255,255,255,${readingSettings.overlayOpacity ?? 0.9})`,
-                                backdropFilter: `blur(${readingSettings.overlayBlur ?? 0}px)`
+                                backdropFilter: `blur(${readingSettings.overlayBlur ?? 0}px)`,
+                                WebkitBackdropFilter: `blur(${readingSettings.overlayBlur ?? 0}px)`
                             }}
                           ></div>
                       )}
@@ -317,6 +318,7 @@ const ProjectSettingsModal: React.FC<SettingsProps> = ({
               </div>
           )}
 
+          {/* ... (Existing TRANSLATION TAB & DATA TAB code remains unchanged) ... */}
           {/* --- TRANSLATION TAB --- */}
           {activeTab === 'translation' && (
              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-in fade-in slide-in-from-right-4 duration-300">

@@ -32,17 +32,19 @@ const AppContent: React.FC = () => {
   
   // New: Reading & Backup Settings
   const [readingSettings, setReadingSettings] = useState<ReadingSettings>(() => {
-     const saved = localStorage.getItem('ao3_reading_settings');
-     return saved ? JSON.parse(saved) : { 
+     const defaults: ReadingSettings = { 
          fontSize: 18, 
          lineHeight: 1.8, 
          blockSpacing: 24, 
          fontFamily: 'serif', 
          maxWidth: 70, 
          paperTheme: 'default',
-         overlayOpacity: 0.9, // Default roughly 90% opacity
-         overlayBlur: 0       // Default no blur
+         overlayOpacity: 0.9, 
+         overlayBlur: 0       
      };
+     const saved = localStorage.getItem('ao3_reading_settings');
+     // Merge saved with defaults to ensure new keys exist
+     return saved ? { ...defaults, ...JSON.parse(saved) } : defaults;
   });
   const [backupSettings, setBackupSettings] = useState<BackupSettings>(() => {
       const saved = localStorage.getItem('ao3_backup_settings');
@@ -455,10 +457,32 @@ const AppContent: React.FC = () => {
           fileReader.onload = (event) => {
               try {
                   const imported = JSON.parse(event.target?.result as string);
-                  if(Array.isArray(imported)) {
+                  let importedProjects: TranslationProject[] = [];
+                  
+                  // Handle legacy format (Array) vs New format (Object with settings)
+                  if (Array.isArray(imported)) {
+                      importedProjects = imported;
+                  } else if (imported.history && Array.isArray(imported.history)) {
+                      importedProjects = imported.history;
+                      // Restore Settings if present
+                      if (imported.settings) {
+                          if(imported.settings.reading) setReadingSettings(imported.settings.reading);
+                          if(imported.settings.backup) setBackupSettings(imported.settings.backup);
+                          if(imported.settings.translation) {
+                              const ts = imported.settings.translation;
+                              if(ts.targetLang) setTargetLang(ts.targetLang);
+                              if(ts.selectedModel) setSelectedModel(ts.selectedModel);
+                              if(ts.batchSize) setBatchSize(ts.batchSize);
+                              if(ts.customPrompt) setCustomPrompt(ts.customPrompt);
+                              if(ts.glossary) setGlossary(ts.glossary);
+                          }
+                      }
+                  }
+
+                  if(importedProjects.length > 0) {
                       setHistory(prev => {
                           const existingIds = new Set(prev.map(p => p.id));
-                          const newItems = (imported as TranslationProject[]).filter(p => !existingIds.has(p.id)).map(sanitizeProjectData);
+                          const newItems = importedProjects.filter(p => !existingIds.has(p.id)).map(sanitizeProjectData);
                           return [...newItems, ...prev];
                       });
                       showToast(t.toastImportSuccess, "success");
@@ -469,7 +493,30 @@ const AppContent: React.FC = () => {
   };
 
   const handleExportHistory = async () => {
-      const dataStr = JSON.stringify(history);
+      // Extended export with settings
+      const exportData = {
+          type: 'ao3-translator-backup',
+          version: 1,
+          date: new Date().toISOString(),
+          history,
+          settings: {
+              reading: readingSettings,
+              backup: backupSettings,
+              translation: {
+                  targetLang,
+                  selectedModel,
+                  batchSize,
+                  contextWindow,
+                  customPrompt,
+                  refinePromptTemplate,
+                  glossary,
+                  includeTags,
+                  tagInstruction
+              }
+          }
+      };
+
+      const dataStr = JSON.stringify(exportData);
       const fileName = `ao3_backup_${new Date().toISOString().slice(0,10)}.json`;
       
       try {

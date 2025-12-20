@@ -60,12 +60,13 @@ interface BlockItemProps {
   t: any;
   readingStyle: React.CSSProperties;
   blockSpacing: number;
+  isCustomTheme: boolean;
 }
 
 const TranslationBlockItem = React.memo(({
   block, displayMode, isBookmarked, isEditing, isRefining, isEditingNote,
   onStartEdit, onCancelEdit, onSaveEdit, onToggleRefine, onToggleNote, onUpdateNote,
-  onToggleFavorite, onSetBookmark, onToggleBlockType, onRefine, t, readingStyle, blockSpacing
+  onToggleFavorite, onSetBookmark, onToggleBlockType, onRefine, t, readingStyle, blockSpacing, isCustomTheme
 }: BlockItemProps) => {
   const [localEditText, setLocalEditText] = useState(block.translated);
   const [localNote, setLocalNote] = useState(block.note || '');
@@ -128,34 +129,34 @@ const TranslationBlockItem = React.memo(({
 
   const Toolbar = () => (
     <div className="flex items-center justify-end gap-1 mb-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200" style={{ opacity: (isRefining || isEditing || isEditingNote) ? 1 : undefined }}>
-      <div className="flex items-center gap-1 bg-white/80 dark:bg-black/60 backdrop-blur-md shadow-sm border border-gray-100/50 dark:border-white/5 rounded-full px-2 py-1">
+      <div className={`flex items-center gap-1 backdrop-blur-md shadow-sm border rounded-full px-2 py-1 ${isCustomTheme ? 'bg-white/30 dark:bg-black/30 border-white/20 dark:border-white/10 shadow-md' : 'bg-white/70 dark:bg-black/60 border-gray-200/50 dark:border-white/5'}`}>
         <Tooltip content={block.type === 'header' ? t.convertToText : t.convertToHeader}>
-            <button onClick={(e) => { e.stopPropagation(); onToggleBlockType(block.id); }} className={`p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-white/10 transition-colors ${block.type === 'header' ? 'text-[#990000]' : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'}`}>
+            <button onClick={(e) => { e.stopPropagation(); onToggleBlockType(block.id); }} className={`p-1.5 rounded-full hover:bg-white/50 dark:hover:bg-white/20 transition-colors ${block.type === 'header' ? 'text-[#990000] dark:text-red-400' : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'}`}>
                 <Heading className="w-3.5 h-3.5"/>
             </button>
         </Tooltip>
         <Tooltip content={t.actionFavorite}>
-            <button onClick={(e) => { e.stopPropagation(); onToggleFavorite(block.id); }} className={`p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-white/10 transition-colors ${block.isFavorite ? 'text-red-500' : 'text-gray-500 dark:text-gray-400 hover:text-red-500'}`}>
+            <button onClick={(e) => { e.stopPropagation(); onToggleFavorite(block.id); }} className={`p-1.5 rounded-full hover:bg-white/50 dark:hover:bg-white/20 transition-colors ${block.isFavorite ? 'text-red-500' : 'text-gray-600 dark:text-gray-300 hover:text-red-500'}`}>
                 <Heart className={`w-3.5 h-3.5 ${block.isFavorite ? 'fill-current' : ''}`}/>
             </button>
         </Tooltip>
         <Tooltip content={t.actionNote}>
-            <button onClick={(e) => { e.stopPropagation(); onToggleNote(block.id); }} className={`p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-white/10 transition-colors ${block.note ? 'text-yellow-600 dark:text-yellow-400' : 'text-gray-500 dark:text-gray-400 hover:text-yellow-500'}`}>
+            <button onClick={(e) => { e.stopPropagation(); onToggleNote(block.id); }} className={`p-1.5 rounded-full hover:bg-white/50 dark:hover:bg-white/20 transition-colors ${block.note ? 'text-yellow-600 dark:text-yellow-400' : 'text-gray-600 dark:text-gray-300 hover:text-yellow-500'}`}>
                 <FileText className={`w-3.5 h-3.5 ${block.note ? 'fill-current' : ''}`}/>
             </button>
         </Tooltip>
         <Tooltip content={t.actionRefine}>
-            <button onClick={(e) => { e.stopPropagation(); onToggleRefine(block.id); }} className={`p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-white/10 transition-colors ${isRefining ? 'text-indigo-500' : 'text-gray-500 dark:text-gray-400 hover:text-indigo-500'}`}>
+            <button onClick={(e) => { e.stopPropagation(); onToggleRefine(block.id); }} className={`p-1.5 rounded-full hover:bg-white/50 dark:hover:bg-white/20 transition-colors ${isRefining ? 'text-indigo-500' : 'text-gray-600 dark:text-gray-300 hover:text-indigo-500'}`}>
                 <Sparkles className="w-3.5 h-3.5"/>
             </button>
         </Tooltip>
         <Tooltip content={t.actionEdit}>
-            <button onClick={(e) => { e.stopPropagation(); onStartEdit(block.id, block.translated); }} className={`p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-white/10 transition-colors ${isEditing ? 'text-blue-500' : 'text-gray-500 dark:text-gray-400 hover:text-blue-500'}`}>
+            <button onClick={(e) => { e.stopPropagation(); onStartEdit(block.id, block.translated); }} className={`p-1.5 rounded-full hover:bg-white/50 dark:hover:bg-white/20 transition-colors ${isEditing ? 'text-blue-500' : 'text-gray-600 dark:text-gray-300 hover:text-blue-500'}`}>
                 <Edit2 className="w-3.5 h-3.5"/>
             </button>
         </Tooltip>
         <Tooltip content={t.actionBookmark}>
-            <button onClick={(e) => { e.stopPropagation(); onSetBookmark(block.id); }} className={`p-1.5 rounded-full transition-colors ${isBookmarked ? 'text-[#990000]' : 'text-gray-500 dark:text-gray-400 hover:text-[#990000] hover:bg-gray-100 dark:hover:bg-white/10'}`}>
+            <button onClick={(e) => { e.stopPropagation(); onSetBookmark(block.id); }} className={`p-1.5 rounded-full transition-colors ${isBookmarked ? 'text-[#990000] dark:text-red-400' : 'text-gray-600 dark:text-gray-300 hover:text-[#990000] hover:bg-white/50 dark:hover:bg-white/20'}`}>
                 <Bookmark className={`w-3.5 h-3.5 ${isBookmarked ? 'fill-current' : ''}`}/>
             </button>
         </Tooltip>
@@ -235,7 +236,7 @@ const TranslationBlockItem = React.memo(({
         id={`block-${block.id}`} 
         data-block-id={block.id} 
         style={{ marginBottom: `${blockSpacing}px` }}
-        className={`translation-block-item group transition-colors p-6 scroll-mt-32 ${isTranslatedOnly ? 'rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm bg-white dark:bg-[#1e1e1e]' : ''} ${isEditing ? 'bg-blue-50/50 dark:bg-blue-900/10' : 'hover:bg-gray-50 dark:hover:bg-white/5'} ${isBookmarked ? 'ring-2 ring-red-100 dark:ring-red-900/30 bg-red-50/20' : ''}`}
+        className={`translation-block-item group transition-colors p-6 scroll-mt-32 ${isTranslatedOnly ? 'rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm bg-white dark:bg-[#1e1e1e]' : ''} ${isEditing ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''} ${isBookmarked ? 'ring-2 ring-red-100 dark:ring-red-900/30 bg-red-50/20' : ''}`}
     >
       {isBookmarked && <div className="absolute -left-[1px] top-6 w-1 h-8 bg-[#990000] rounded-r"></div>}
       <Toolbar />
@@ -268,7 +269,8 @@ const TranslationBlockItem = React.memo(({
     prev.isRefining === next.isRefining &&
     prev.isEditingNote === next.isEditingNote &&
     prev.readingStyle === next.readingStyle &&
-    prev.blockSpacing === next.blockSpacing 
+    prev.blockSpacing === next.blockSpacing &&
+    prev.isCustomTheme === next.isCustomTheme 
   );
 });
 
@@ -331,14 +333,6 @@ const TranslationReader: React.FC<TranslationReaderProps> = ({
   // Dynamic Background Style for Custom Image
   const containerStyle = useMemo(() => {
       const style: React.CSSProperties = {};
-      
-      // Allow custom background in all modes if set
-      if (isCustomTheme && readingSettings.customBgImage) {
-          style.backgroundImage = `url(${readingSettings.customBgImage})`;
-          style.backgroundSize = 'cover';
-          style.backgroundAttachment = 'fixed'; // Parallax effect
-          style.backgroundPosition = 'center';
-      }
       
       // Only apply max-width in Translated Only mode
       if (isTranslatedOnly(displayMode)) {
@@ -432,13 +426,31 @@ const TranslationReader: React.FC<TranslationReaderProps> = ({
         className={`mx-auto rounded-3xl transition-all duration-300 relative overflow-hidden ${paperThemeClasses} ${!isTranslatedOnly(displayMode) ? 'max-w-7xl border border-gray-100 dark:border-gray-800' : 'border-none shadow-none'}`} 
         style={containerStyle}
     >
-      {/* Custom Theme Background Overlay - Applies opacity/blur to content background */}
+      {/* 
+        Custom Theme Layering for Backdrop Blur Support:
+        1. Background Image Layer (z-0)
+        2. Overlay Color/Blur Layer (z-1)
+        3. Content Layer (z-10)
+      */}
+      {isCustomTheme && readingSettings.customBgImage && (
+          <div 
+            className="absolute inset-0 z-0 pointer-events-none"
+            style={{ 
+                backgroundImage: `url(${readingSettings.customBgImage})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                backgroundAttachment: 'fixed' // Fixes the zoomed-in background on long pages
+            }}
+          ></div>
+      )}
+
       {isCustomTheme && (
           <div 
-            className="absolute inset-0 z-0 pointer-events-none transition-all duration-300"
+            className="absolute inset-0 z-[1] pointer-events-none transition-all duration-300"
             style={{ 
                 backgroundColor: theme === 'dark' ? `rgba(0,0,0,${readingSettings.overlayOpacity ?? 0.9})` : `rgba(255,255,255,${readingSettings.overlayOpacity ?? 0.9})`,
-                backdropFilter: `blur(${readingSettings.overlayBlur ?? 0}px)`
+                backdropFilter: `blur(${readingSettings.overlayBlur ?? 0}px)`,
+                WebkitBackdropFilter: `blur(${readingSettings.overlayBlur ?? 0}px)`,
             }}
           ></div>
       )}
@@ -631,6 +643,7 @@ const TranslationReader: React.FC<TranslationReaderProps> = ({
              t={t}
              readingStyle={readingStyle}
              blockSpacing={readingSettings.blockSpacing || 24}
+             isCustomTheme={isCustomTheme}
            />
          ))}
       </div>
