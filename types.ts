@@ -7,6 +7,8 @@ export interface TranslationBlock {
   isLoading: boolean;
   isFavorite?: boolean; // Mark paragraph as favorite
   note?: string; // New: User insights/notes
+  type?: 'text' | 'header' | 'separator'; // New: Semantic type
+  chapterIndex?: number; // New: For pagination
 }
 
 export interface FicMetadata {
@@ -53,6 +55,7 @@ export const SUPPORTED_LANGUAGES = [
   { code: 'fr', name: 'French' },
   { code: 'de', name: 'German' },
   { code: 'ru', name: 'Russian' },
+  { code: 'original', name: 'Original (No Translation)' },
 ];
 
 export const AVAILABLE_MODELS = [

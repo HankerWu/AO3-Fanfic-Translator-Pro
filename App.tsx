@@ -2,16 +2,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { TranslationProject, TranslationBlock, DisplayMode, SUPPORTED_LANGUAGES, AVAILABLE_MODELS, FicMetadata, DEFAULT_PROMPT, DEFAULT_REFINE_PROMPT } from './types';
 import { identifyFandom, translateBatch } from './services/geminiService';
-import { splitTextIntoBlocks, generateId, exportTranslation, parseUploadedFile, sanitizeProjectData } from './services/utils';
+import { splitTextIntoBlocks, generateId, exportTranslation, parseUploadedFile, sanitizeProjectData, mergeProjectBlocks, calculateSimilarity, recalculateChapterIndices } from './services/utils';
 import { Download, Play, Pause, Loader2, Settings as SettingsIcon, Sliders, ChevronDown } from 'lucide-react';
 import TranslationReader from './components/TranslationReader';
-import HistorySidebar from './components/HistorySidebar';
+import HistoryPage from './components/HistoryPage';
 import FavoritesPage from './components/FavoritesPage';
 import Navbar from './components/Navbar';
 import TranslationInput from './components/TranslationInput';
 import ProjectSettingsModal from './components/ProjectSettingsModal';
 import { ThemeProvider } from './components/ThemeContext';
 import { UI_STRINGS, LanguageCode } from './services/i18n';
+import Tooltip from './components/Tooltip';
 
 const Main: React.FC = () => {
   const [uiLang, setUiLang] = useState<LanguageCode>('zh'); 
@@ -25,8 +26,9 @@ const Main: React.FC = () => {
   const [detectedMeta, setDetectedMeta] = useState<any>(null);
   const [currentProject, setCurrentProject] = useState<TranslationProject | null>(null);
   const [history, setHistory] = useState<TranslationProject[]>([]);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [showFavorites, setShowFavorites] = useState(false);
+  
+  // Navigation State - Mutually Exclusive
+  const [activeOverlay, setActiveOverlay] = useState<'none' | 'history' | 'favorites'>('none');
   
   const [displayMode, setDisplayMode] = useState<DisplayMode>(DisplayMode.TRANSLATED_ONLY);
   const [targetLang, setTargetLang] = useState('zh-CN');
@@ -46,6 +48,10 @@ const Main: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const stopProcessingRef = useRef(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
+
+  // Update File Input State
+  const updateInputRef = useRef<HTMLInputElement>(null);
+  const [updatingProjectId, setUpdatingProjectId] = useState<string | null>(null);
 
   // History Persistence
   useEffect(() => {
@@ -78,6 +84,17 @@ const Main: React.FC = () => {
     }
   }, [currentProject]);
 
+  // Navigation Handlers (Mutually Exclusive)
+  const toggleHistory = () => {
+    setActiveOverlay(prev => prev === 'history' ? 'none' : 'history');
+  };
+
+  const toggleFavorites = () => {
+    setActiveOverlay(prev => prev === 'favorites' ? 'none' : 'favorites');
+  };
+
+  const closeOverlays = () => setActiveOverlay('none');
+
   const generateSmartPrompt = (meta: any) => {
     return `You are a professional literary translator specializing in Fanfiction.\n\nMetadata Context:\n- Title: ${meta.title}\n- Author: ${meta.author}\n- Fandom: ${meta.fandom}${meta.tags.length > 0 ? `\n- Tags: ${meta.tags.slice(0, 20).join(', ')}` : ''}\n\nDirectives:\n1. Maintain character voices and the ${meta.fandom} tone.\n2. Prioritize literary flow and emotional resonance.\n3. Correct terminology usage.\n4. Optimized typography.`;
   };
@@ -105,7 +122,7 @@ const Main: React.FC = () => {
           ...currentProject.metadata, 
           model: selectedModel, 
           customPrompt, 
-          refinePromptTemplate,
+          refinePromptTemplate, 
           contextWindow, 
           batchSize, 
           glossary, 
@@ -119,6 +136,33 @@ const Main: React.FC = () => {
     setHistory(prev => prev.map(p => p.id === updated.id ? updated : p));
     setShowProjectSettingsModal(false);
   };
+  
+  const handleToggleBlockType = (blockId: string) => {
+      if (!currentProject) return;
+      
+      const newBlocks = currentProject.blocks.map(b => 
+          b.id === blockId ? { ...b, type: b.type === 'header' ? 'text' : 'header' } : b
+      );
+      
+      const reindexedBlocks = recalculateChapterIndices(newBlocks as TranslationBlock[]);
+      
+      const updatedProject = {
+          ...currentProject,
+          blocks: reindexedBlocks,
+          lastModified: Date.now()
+      };
+      
+      setCurrentProject(updatedProject);
+      setHistory(prev => prev.map(p => p.id === updatedProject.id ? updatedProject : p));
+  };
+
+  const handleCreateNew = () => {
+      setCurrentProject(null);
+      closeOverlays();
+      setInputFile(null);
+      setInputText('');
+      setDetectedMeta(null);
+  };
 
   const handleStart = async () => {
     stopProcessingRef.current = false;
@@ -126,7 +170,7 @@ const Main: React.FC = () => {
 
     try {
       if (currentProject && currentProject.blocks.length > 0) {
-        // Resuming: update metadata with current UI settings
+        // Resuming
         projectToUse = { 
             ...currentProject, 
             metadata: { 
@@ -155,7 +199,7 @@ const Main: React.FC = () => {
           blocks = splitTextIntoBlocks(inputText);
         } else { setIsProcessing(false); return; }
 
-        if (fandom === "Unknown") fandom = await identifyFandom(blocks.slice(0, 3).map((b: any) => b.original).join('\n'), selectedModel);
+        if (fandom === "Unknown" && targetLang !== 'original') fandom = await identifyFandom(blocks.slice(0, 3).map((b: any) => b.original).join('\n'), selectedModel);
 
         projectToUse = {
           id: generateId(),
@@ -175,7 +219,26 @@ const Main: React.FC = () => {
           },
           blocks, lastModified: Date.now(),
         };
+        projectToUse = sanitizeProjectData(projectToUse);
         setCurrentProject(projectToUse);
+      }
+
+      if (targetLang === 'original') {
+         const autoFilledBlocks = projectToUse.blocks.map(b => ({
+             ...b,
+             translated: b.original,
+             isLoading: false
+         }));
+         const completedProject = {
+             ...projectToUse,
+             blocks: autoFilledBlocks,
+             lastModified: Date.now()
+         };
+         setCurrentProject(completedProject);
+         setHistory(prev => [completedProject, ...prev.filter(p => p.id !== completedProject.id)]);
+         setProgress({ current: autoFilledBlocks.length, total: autoFilledBlocks.length });
+         setIsProcessing(false);
+         return;
       }
 
       setIsProcessing(true);
@@ -183,7 +246,6 @@ const Main: React.FC = () => {
       const translatedBlocks = [...projectToUse.blocks];
       const contextBuffer: string[] = [];
 
-      // Initialize context buffer with already translated blocks if any
       let translatedCount = 0;
       translatedBlocks.forEach(b => {
           if (b.translated) {
@@ -200,11 +262,11 @@ const Main: React.FC = () => {
         const batch = translatedBlocks.slice(i, i + BATCH_SIZE);
         const indices = batch.map((b, idx) => !b.translated ? i + idx : -1).filter(idx => idx !== -1);
         
-        // Skip if all in batch are already translated
         if (indices.length === 0) {
            batch.forEach(b => { 
                if(b.translated) { 
-                 // Doing nothing here as buffer is pre-filled or maintained
+                 contextBuffer.push(b.original); 
+                 if (contextBuffer.length > contextWindow) contextBuffer.shift();
                }
            });
            continue; 
@@ -231,19 +293,31 @@ const Main: React.FC = () => {
               translatedBlocks[realIdx].translated = results[mapIdx]; 
               translatedBlocks[realIdx].isLoading = false; 
           });
-        } catch (err) { 
-            indices.forEach(idx => translatedBlocks[idx].isLoading = false); 
+          
+          batch.forEach(b => { contextBuffer.push(b.original); if (contextBuffer.length > contextWindow) contextBuffer.shift(); });
+          
+        } catch (err: any) { 
+            console.error("Batch failed, stopping processing:", err);
+            indices.forEach(idx => translatedBlocks[idx].isLoading = false);
+            setCurrentProject({ ...projectToUse, blocks: [...translatedBlocks] });
+            stopProcessingRef.current = true;
+            setIsProcessing(false);
+            alert(`${t.errorGeneric}\n\nReason: ${err.message || "Unknown API Error"}\n\nThe translation has been paused. You can click 'Resume' to try again later.`);
+            break; 
         }
 
-        // Update context buffer with the newly translated block originals
-        batch.forEach(b => { contextBuffer.push(b.original); if (contextBuffer.length > contextWindow) contextBuffer.shift(); });
-        
         const updated = { ...projectToUse, blocks: [...translatedBlocks], lastModified: Date.now() };
         setCurrentProject(updated);
         setHistory(prev => [updated, ...prev.filter(p => p.id !== updated.id)]);
         setProgress({ current: translatedBlocks.filter(b => b.translated).length, total: translatedBlocks.length });
       }
-    } catch (e) { alert(t.errorGeneric); } finally { setIsProcessing(false); stopProcessingRef.current = false; }
+    } catch (e) { 
+        console.error("Critical App Error", e);
+        alert(t.errorGeneric); 
+    } finally { 
+        setIsProcessing(false); 
+        stopProcessingRef.current = false; 
+    }
   };
 
   const handleUpdateBlock = (blockId: string, newText: string) => {
@@ -327,94 +401,167 @@ const Main: React.FC = () => {
       downloadAnchorNode.remove();
   };
 
-  return (
-    <div className="min-h-screen bg-[#faf9f6] dark:bg-[#121212] text-gray-800 dark:text-gray-200 font-sans selection:bg-red-100 dark:selection:bg-red-900/30 selection:text-red-900 transition-colors">
-      <Navbar 
-        uiLang={uiLang} setUiLang={setUiLang} 
-        showFavorites={showFavorites} setShowFavorites={setShowFavorites}
-        setHistoryOpen={setHistoryOpen} hasHistory={history.length > 0}
-        currentProject={currentProject} displayMode={displayMode} setDisplayMode={setDisplayMode}
-        onHome={() => { setCurrentProject(null); setShowFavorites(false); }}
-      />
+  const handleExportCurrent = (format: 'markdown' | 'html') => {
+    if (currentProject) exportTranslation(currentProject, format);
+  };
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {showFavorites ? (
-          <FavoritesPage 
-            history={history} 
-            lang={uiLang} 
-            onNavigateToProject={(pid, bid) => { setCurrentProject(history.find(p => p.id === pid)!); setShowFavorites(false); }} 
-            onUpdateNote={handleUpdateNote} 
-            onRemoveFavorite={handleToggleFavorite} 
-            onExportBackup={handleExportHistory} 
-            onClose={() => setShowFavorites(false)} 
-          />
-        ) : currentProject ? (
-          <div className="space-y-6 animate-in fade-in duration-700">
-            <div className="bg-white dark:bg-[#1a1a1a] p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 flex flex-col md:flex-row gap-4 justify-between items-center transition-colors">
-              <div className="text-center md:text-left">
-                <h1 className="font-serif font-bold text-xl text-gray-900 dark:text-white line-clamp-1">{currentProject.metadata.title}</h1>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 uppercase tracking-widest font-black">{currentProject.metadata.fandom}</p>
-              </div>
-              <div className="flex flex-wrap gap-2 justify-center">
-                <button 
-                    onClick={() => setShowProjectSettingsModal(true)} 
-                    className="px-4 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl flex items-center gap-2 text-sm font-bold text-gray-700 dark:text-gray-200 transition-colors"
-                >
-                    <SettingsIcon className="w-4 h-4"/> {t.settings}
-                </button>
-                <div className="w-px h-8 bg-gray-200 dark:bg-gray-700 mx-2 hidden md:block"></div>
-                {!isProcessing && progress.current < progress.total && <button onClick={handleStart} className="px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-bold shadow-md flex items-center gap-2 hover:bg-green-700 transition-colors"><Play className="w-4 h-4"/> {t.resume}</button>}
-                {isProcessing && <button onClick={handleStop} className="px-4 py-2 bg-amber-500 text-white rounded-xl text-sm font-bold shadow-md flex items-center gap-2 hover:bg-amber-600 transition-colors"><Pause className="w-4 h-4"/> {t.pause}</button>}
-                <button onClick={() => exportTranslation(currentProject, 'markdown')} className="px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-bold hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">{t.exportMD}</button>
-              </div>
-            </div>
-            <TranslationReader 
-              blocks={currentProject.blocks} 
-              displayMode={displayMode} 
-              fandom={currentProject.metadata.fandom} 
-              targetLang={targetLang} 
-              model={selectedModel} 
-              refinePromptTemplate={refinePromptTemplate}
-              bookmarkBlockId={currentProject.bookmarkBlockId}
-              onUpdateBlock={handleUpdateBlock} 
-              onLoadingStateChange={handleBlockLoading} 
-              onToggleFavorite={(bid) => handleToggleFavorite(currentProject.id, bid)} 
-              onSetBookmark={handleSetBookmark} 
-              onUpdateNote={(bid, note) => handleUpdateNote(currentProject.id, bid, note)} 
-              onOpenSettings={() => setShowProjectSettingsModal(true)}
-              lang={uiLang}
-            />
-          </div>
-        ) : (
-          <TranslationInput 
-            uiLang={uiLang} inputType={inputType} setInputType={setInputType} detectedMeta={detectedMeta} inputFile={inputFile} 
-            handleFileChange={handleFileChange} inputText={inputText} setInputText={setInputText} inputUrl={inputUrl} setInputUrl={setInputUrl}
+  const triggerUpdateProject = (projectId: string) => {
+      setUpdatingProjectId(projectId);
+      setTimeout(() => updateInputRef.current?.click(), 100);
+  };
+
+  const handleUpdateFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file || !updatingProjectId) return;
+      
+      try {
+          const newParsed = await parseUploadedFile(file);
+          const oldProject = history.find(p => p.id === updatingProjectId);
+          if (!oldProject) return;
+
+          const similarity = calculateSimilarity(oldProject.blocks, newParsed.blocks);
+          
+          let proceed = true;
+          if (similarity < 20) {
+              const msg = t.updateWarningMsg.replace('{{percent}}', similarity.toString());
+              proceed = window.confirm(`${t.updateWarningTitle}\n\n${msg}`);
+          }
+
+          if (proceed) {
+             const mergedBlocks = mergeProjectBlocks(oldProject.blocks, newParsed.blocks);
+             const updatedProject: TranslationProject = {
+                  ...oldProject,
+                  blocks: mergedBlocks,
+                  metadata: {
+                      ...oldProject.metadata,
+                      title: newParsed.title || oldProject.metadata.title,
+                      tags: (newParsed.tags && newParsed.tags.length > 0) ? newParsed.tags : oldProject.metadata.tags
+                  },
+                  lastModified: Date.now()
+             };
+
+             setHistory(prev => prev.map(p => p.id === updatingProjectId ? updatedProject : p));
+             if (currentProject && currentProject.id === updatingProjectId) {
+                 setCurrentProject(updatedProject);
+             }
+             alert(t.updateSuccess);
+          }
+      } catch (err) {
+          console.error(err);
+          alert(t.errorGeneric);
+      } finally {
+          setUpdatingProjectId(null);
+          if (updateInputRef.current) updateInputRef.current.value = '';
+      }
+  };
+
+  const renderMainContent = () => {
+    if (!currentProject) {
+      return (
+        <TranslationInput 
+            uiLang={uiLang} inputType={inputType} setInputType={setInputType} 
+            detectedMeta={detectedMeta} inputFile={inputFile} handleFileChange={handleFileChange}
+            inputText={inputText} setInputText={setInputText} inputUrl={inputUrl} setInputUrl={setInputUrl}
             targetLang={targetLang} setTargetLang={setTargetLang} selectedModel={selectedModel} setSelectedModel={setSelectedModel}
-            showSettings={showSettings} setShowSettings={setShowSettings} batchSize={batchSize} setBatchSize={setBatchSize} 
+            showSettings={showSettings} setShowSettings={setShowSettings} batchSize={batchSize} setBatchSize={setBatchSize}
             contextWindow={contextWindow} setContextWindow={setContextWindow} includeTags={includeTags} setIncludeTags={setIncludeTags}
             customPrompt={customPrompt} setCustomPrompt={setCustomPrompt} tagInstruction={tagInstruction} setTagInstruction={setTagInstruction}
-            glossary={glossary} setGlossary={setGlossary} onRestorePrompt={() => setCustomPrompt(DEFAULT_PROMPT)} 
-            onRemoveTag={(tag) => setDetectedMeta((prev: any) => ({...prev, tags: prev.tags.filter((t:string) => t !== tag)}))}
+            glossary={glossary} setGlossary={setGlossary} onRestorePrompt={() => { setCustomPrompt(DEFAULT_PROMPT); setRefinePromptTemplate(DEFAULT_REFINE_PROMPT); }}
+            onRemoveTag={(t) => setDetectedMeta((prev: any) => ({ ...prev, tags: prev.tags.filter((x: string) => x !== t) }))}
             isProcessing={isProcessing} onStart={handleStart}
-          />
+        />
+      );
+    } else {
+      return (
+        <TranslationReader 
+             key={currentProject.id}
+             blocks={currentProject.blocks} 
+             displayMode={displayMode} 
+             fandom={currentProject.metadata.fandom} 
+             targetLang={currentProject.metadata.targetLanguage} 
+             model={selectedModel} 
+             refinePromptTemplate={refinePromptTemplate}
+             bookmarkBlockId={currentProject.bookmarkBlockId}
+             title={currentProject.metadata.title}
+             author={currentProject.metadata.author}
+             percentComplete={progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0}
+             isProcessing={isProcessing}
+             onUpdateBlock={handleUpdateBlock} onLoadingStateChange={handleBlockLoading} 
+             onToggleFavorite={(blockId) => handleToggleFavorite(currentProject.id, blockId)}
+             onSetBookmark={handleSetBookmark}
+             onUpdateNote={(blockId, note) => handleUpdateNote(currentProject.id, blockId, note)}
+             onToggleBlockType={handleToggleBlockType}
+             onOpenSettings={() => setShowProjectSettingsModal(true)}
+             onUpdateSource={() => triggerUpdateProject(currentProject.id)}
+             onExport={handleExportCurrent}
+             onContinue={handleStart}
+             lang={uiLang}
+        />
+      );
+    }
+  };
+
+  return (
+    <ThemeProvider>
+      <div className="min-h-screen bg-[#faf9f6] dark:bg-[#121212] text-gray-800 dark:text-gray-200 font-sans selection:bg-red-100 dark:selection:bg-red-900/30 selection:text-red-900 transition-colors">
+        <input type="file" ref={updateInputRef} onChange={handleUpdateFileSelect} accept=".html,.htm,.txt" className="hidden" />
+        
+        {/* Navbar: Always visible, high z-index, no opacity fade */}
+        <Navbar 
+          uiLang={uiLang} setUiLang={setUiLang} 
+          showFavorites={activeOverlay === 'favorites'} setShowFavorites={toggleFavorites} 
+          showHistory={activeOverlay === 'history'} toggleHistory={toggleHistory}
+          hasHistory={history.length > 0} 
+          currentProject={currentProject} displayMode={displayMode} setDisplayMode={setDisplayMode} 
+          onHome={handleCreateNew}
+          onOpenSettings={() => setShowProjectSettingsModal(true)}
+        />
+        
+        {/* Content Wrapper: Applies scale/fade effect when overlay is active */}
+        <div className={`transition-all duration-300 ${activeOverlay !== 'none' ? 'scale-[0.98] opacity-50 overflow-hidden h-[calc(100vh-64px)]' : ''}`}>
+           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+             {renderMainContent()}
+           </main>
+        </div>
+
+        {activeOverlay === 'history' && (
+           <HistoryPage 
+              history={history} lang={uiLang} 
+              onNavigateToProject={(p) => { setCurrentProject(p); closeOverlays(); }}
+              onCreateNew={handleCreateNew}
+              onTriggerUpdate={triggerUpdateProject}
+              onDelete={deleteHistoryItem} onClear={() => { if(confirm(t.confirmClear)) { setHistory([]); setCurrentProject(null); } }}
+              onImport={handleImportHistory} onExport={handleExportHistory} onClose={closeOverlays}
+           />
         )}
-      </main>
 
-      <ProjectSettingsModal 
-        uiLang={uiLang} isOpen={showProjectSettingsModal} onClose={() => setShowProjectSettingsModal(false)} onSave={handleSaveProjectSettings}
-        settings={{ selectedModel, setSelectedModel, targetLang, setTargetLang, batchSize, setBatchSize, contextWindow, setContextWindow, customPrompt, setCustomPrompt, refinePromptTemplate, setRefinePromptTemplate, glossary, setGlossary, includeTags, setIncludeTags, tagInstruction, setTagInstruction }}
-        onRestorePrompt={() => setCustomPrompt(DEFAULT_PROMPT)}
-      />
+        {activeOverlay === 'favorites' && (
+            <FavoritesPage 
+               history={history} lang={uiLang} 
+               onNavigateToProject={(pid, bid) => { 
+                   const p = history.find(x => x.id === pid); 
+                   if(p) { setCurrentProject(p); handleSetBookmark(bid); closeOverlays(); }
+               }}
+               onUpdateNote={(pid, bid, n) => handleUpdateNote(pid, bid, n)}
+               onRemoveFavorite={(pid, bid) => handleToggleFavorite(pid, bid)}
+               onExportBackup={handleExportHistory}
+               onClose={closeOverlays}
+            />
+        )}
 
-      <HistorySidebar history={history} onSelect={(p) => setCurrentProject(p)} onDelete={deleteHistoryItem} onClear={() => setHistory([])} onImport={handleImportHistory} onExport={handleExportHistory} isOpen={historyOpen} onClose={() => setHistoryOpen(false)} lang={uiLang} />
-    </div>
+        {/* Global Settings Modal */}
+        <ProjectSettingsModal 
+           uiLang={uiLang} isOpen={showProjectSettingsModal} onClose={() => setShowProjectSettingsModal(false)} onSave={handleSaveProjectSettings}
+           fandom={currentProject?.metadata.fandom || detectedMeta?.fandom}
+           settings={{ 
+               selectedModel, setSelectedModel, targetLang, setTargetLang, batchSize, setBatchSize, contextWindow, setContextWindow, 
+               customPrompt, setCustomPrompt, refinePromptTemplate, setRefinePromptTemplate, glossary, setGlossary, includeTags, setIncludeTags, tagInstruction, setTagInstruction 
+           }}
+           onRestorePrompt={() => { setCustomPrompt(DEFAULT_PROMPT); setRefinePromptTemplate(DEFAULT_REFINE_PROMPT); }}
+        />
+      </div>
+    </ThemeProvider>
   );
 };
 
-const App: React.FC = () => (
-  <ThemeProvider>
-    <Main />
-  </ThemeProvider>
-);
-
-export default App;
+export default Main;

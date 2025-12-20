@@ -5,6 +5,56 @@ import { TranslationBlock } from "../types";
 // Always use process.env.API_KEY directly as per instructions
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+const isRetryableError = (error: any): boolean => {
+  // Check for standard HTTP status codes in error object
+  const status = error.status || error.response?.status;
+  if (status === 429 || status === 500 || status === 503 || status === 502 || status === 504) {
+    return true;
+  }
+  
+  // Check error message string patterns common in GenAI SDK
+  const msg = error.message?.toLowerCase() || '';
+  if (
+    msg.includes('resource has been exhausted') || 
+    msg.includes('too many requests') || 
+    msg.includes('quota') ||
+    msg.includes('overloaded') ||
+    msg.includes('server error') ||
+    msg.includes('timeout') ||
+    msg.includes('fetch failed')
+  ) {
+    return true;
+  }
+
+  return false;
+};
+
+// Generic retry wrapper with exponential backoff
+async function callWithRetry<T>(fn: () => Promise<T>, maxRetries: number = 3, baseDelay: number = 2000): Promise<T> {
+  let attempt = 0;
+  while (attempt <= maxRetries) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      if (attempt === maxRetries || !isRetryableError(error)) {
+        console.error(`API Call failed permanently after ${attempt} retries. Reason:`, error.message);
+        throw error;
+      }
+
+      const delay = baseDelay * Math.pow(2, attempt); // 2s, 4s, 8s
+      // Add a little jitter to prevent thundering herd
+      const jitter = Math.random() * 500; 
+      console.warn(`API Error (${error.message}). Retrying in ${(delay + jitter).toFixed(0)}ms... (Attempt ${attempt + 1}/${maxRetries})`);
+      
+      await wait(delay + jitter);
+      attempt++;
+    }
+  }
+  throw new Error("Unreachable code");
+}
+
 export const identifyFandom = async (textSample: string, model: string): Promise<string> => {
   try {
     const response = await ai.models.generateContent({
@@ -40,7 +90,6 @@ export const generateFandomGlossary = async (fandom: string, targetLang: string,
     return response.text?.trim() || "";
   } catch (error) {
     console.error("Glossary generation error:", error);
-    // Explicitly returning null or empty string, UI should handle "empty" as failure if needed or user can retry
     return ""; 
   }
 };
@@ -100,7 +149,8 @@ export const translateBatch = async (
     ${JSON.stringify(blocks)}
   `;
 
-  try {
+  // Wrap the actual API call in our retry logic
+  return callWithRetry(async () => {
     const response = await ai.models.generateContent({
       model: model,
       contents: prompt,
@@ -120,11 +170,8 @@ export const translateBatch = async (
     if (Array.isArray(parsed) && parsed.length === blocks.length) {
       return parsed;
     }
-    return blocks.map(() => "Translation Error: Length mismatch");
-  } catch (error) {
-    console.error("Translation error:", error);
-    throw error;
-  }
+    throw new Error("Length mismatch in translation response");
+  }, 3, 2000); // Max 3 retries, start with 2s delay
 };
 
 export const refineBlock = async (
@@ -137,13 +184,11 @@ export const refineBlock = async (
   promptTemplate: string
 ): Promise<string> => {
   
-  // Use a system instruction to enforce behavior
   const systemInstruction = `You are a professional literary translator and editor. 
 Your task is to REWRITE the "Current Draft" based on the "User Instruction".
 If the User Instruction asks for a translation or correction, output ONLY the final corrected text.
 Do not output explanation. Do not output markdown code fences.`;
 
-  // Interpolate the template
   const prompt = promptTemplate
     .replace('{{original}}', original)
     .replace('{{translated}}', currentTranslation)
@@ -157,20 +202,13 @@ Do not output explanation. Do not output markdown code fences.`;
       contents: prompt,
       config: {
         systemInstruction: systemInstruction,
-        temperature: 0.3, // Lower temp for precise fixes
+        temperature: 0.3, 
       }
     });
     
     let text = response.text?.trim() || "";
-    // Clean up markdown code blocks if present
     text = text.replace(/^```(json|markdown|text)?\n/i, '').replace(/\n```$/, '');
-    // Strip surrounding quotes if the model naively quoted the whole result
-    if (text.startsWith('"') && text.endsWith('"') && text.length > 2) {
-         // Only strip if it doesn't look like dialogue (e.g. "Hello," said John.)
-         // Heuristic: If original has quotes, maybe output should too.
-         // Safest bet for "Refine" is usually to strip outer wrapper quotes if they seem structural.
-         // Let's just return trim() unless we see markdown.
-    }
+    
     return text || currentTranslation;
   } catch (error) {
     console.error("Refinement error:", error);

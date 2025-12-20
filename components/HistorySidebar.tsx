@@ -41,13 +41,14 @@ const HistorySidebar: React.FC<HistorySidebarProps> = ({
           <button 
             onClick={onExport}
             className="flex items-center justify-center gap-2 px-3 py-2 text-xs font-bold text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors shadow-sm"
-            title="Backup all projects, favorites, and notes"
+            title={t.backupDescription}
           >
             <Archive className="w-3.5 h-3.5 text-[#990000] dark:text-red-400" /> {t.exportHistory}
           </button>
           <button 
             onClick={() => fileInputRef.current?.click()}
             className="flex items-center justify-center gap-2 px-3 py-2 text-xs font-bold text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors shadow-sm"
+            title={t.importHistory}
           >
             <Upload className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" /> {t.importHistory}
           </button>
@@ -102,6 +103,7 @@ const HistorySidebar: React.FC<HistorySidebarProps> = ({
                       <button 
                         onClick={(e) => { e.stopPropagation(); onDelete(project.id); }}
                         className="text-gray-300 dark:text-gray-600 hover:text-red-500 dark:hover:text-red-400 transition-colors p-1"
+                        title={t.deleteProject}
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>

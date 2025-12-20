@@ -1,10 +1,11 @@
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { TranslationBlock, DisplayMode, AVAILABLE_MODELS } from '../types';
 import { refineBlock } from '../services/geminiService';
-import { Edit2, Check, X, BookOpen, Heart, Bookmark, FileText, Sparkles, ArrowUp, List, Settings, ChevronRight } from 'lucide-react';
+import { Edit2, Check, X, BookOpen, Heart, Bookmark, FileText, Sparkles, ArrowUp, List, ChevronLeft, ChevronRight, Upload, Heading, FileDown, Play, Loader2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { UI_STRINGS, LanguageCode } from '../services/i18n';
+import Tooltip from './Tooltip';
 
 // --- Types ---
 interface TranslationReaderProps {
@@ -15,18 +16,24 @@ interface TranslationReaderProps {
   model: string;
   refinePromptTemplate?: string;
   bookmarkBlockId?: string;
+  title: string;          
+  author: string;         
+  percentComplete: number; 
+  isProcessing: boolean;   
   onUpdateBlock: (id: string, newTranslation: string) => void;
   onLoadingStateChange: (id: string, loading: boolean) => void;
   onToggleFavorite: (id: string) => void;
   onSetBookmark: (id: string) => void;
   onUpdateNote: (id: string, note: string) => void;
+  onToggleBlockType: (id: string) => void; 
   onOpenSettings: () => void;
+  onUpdateSource: () => void;
+  onExport: (format: 'markdown' | 'html') => void; 
+  onContinue: () => void; 
   lang?: LanguageCode;
 }
 
-// --- OPTIMIZED CHILD COMPONENT ---
-// By extracting this and using React.memo, we prevent the entire list from re-rendering 
-// when only one block changes state.
+// --- BLOCK ITEM COMPONENT ---
 interface BlockItemProps {
   block: TranslationBlock;
   displayMode: DisplayMode;
@@ -42,6 +49,7 @@ interface BlockItemProps {
   onUpdateNote: (id: string, note: string) => void;
   onToggleFavorite: (id: string) => void;
   onSetBookmark: (id: string) => void;
+  onToggleBlockType: (id: string) => void;
   onRefine: (id: string, instruction: string, model: string) => void;
   t: any;
 }
@@ -49,14 +57,13 @@ interface BlockItemProps {
 const TranslationBlockItem = React.memo(({
   block, displayMode, isBookmarked, isEditing, isRefining, isEditingNote,
   onStartEdit, onCancelEdit, onSaveEdit, onToggleRefine, onToggleNote, onUpdateNote,
-  onToggleFavorite, onSetBookmark, onRefine, t
+  onToggleFavorite, onSetBookmark, onToggleBlockType, onRefine, t
 }: BlockItemProps) => {
   const [localEditText, setLocalEditText] = useState(block.translated);
   const [localNote, setLocalNote] = useState(block.note || '');
   const [refineInstruction, setRefineInstruction] = useState('');
   const [refineModel, setRefineModel] = useState(AVAILABLE_MODELS[0].id);
 
-  // Reset local state when block data changes externally
   useEffect(() => { setLocalEditText(block.translated); }, [block.translated]);
   useEffect(() => { setLocalNote(block.note || ''); }, [block.note]);
 
@@ -69,28 +76,78 @@ const TranslationBlockItem = React.memo(({
   const isInterlinear = displayMode === DisplayMode.INTERLINEAR;
   const showOriginal = displayMode === DisplayMode.SIDE_BY_SIDE;
 
-  // Typography Styles
+  // Render Logic based on Type
+  if (block.type === 'separator') {
+      return <hr className="my-8 border-gray-300 dark:border-gray-700 w-1/2 mx-auto" />;
+  }
+
+  const cleanHeader = (text: string) => text.replace(/^[#\s]+/, '');
+
+  const HeaderContent = () => (
+      <div id={`block-${block.id}`} className="mt-12 mb-8 text-center scroll-mt-36 group relative">
+          <div className="absolute right-0 top-0 opacity-0 group-hover:opacity-100 transition-opacity">
+              <Tooltip content={t.convertToText}>
+                  <button onClick={() => onToggleBlockType(block.id)} className="p-1.5 bg-gray-100 dark:bg-gray-800 rounded text-gray-500 hover:text-gray-900 dark:hover:text-white">
+                      <Heading className="w-4 h-4" />
+                  </button>
+              </Tooltip>
+          </div>
+          <h2 className="text-2xl md:text-3xl font-serif font-bold text-[#990000] dark:text-red-400 mb-2 cursor-pointer" onClick={() => onStartEdit(block.id, block.translated)}>
+              {cleanHeader(block.translated || block.original)}
+          </h2>
+          {isSideBySide && block.translated && (
+              <p className="text-sm text-gray-400 font-serif italic">{cleanHeader(block.original)}</p>
+          )}
+      </div>
+  );
+
+  if (block.type === 'header') {
+      return isEditing ? (
+        <div className="max-w-xl mx-auto mb-8 p-4 bg-gray-50 dark:bg-gray-900 rounded-xl">
+             <input className="w-full bg-transparent border-b border-gray-300 dark:border-gray-700 font-serif text-2xl font-bold text-[#990000] outline-none mb-2" value={localEditText} onChange={(e) => setLocalEditText(e.target.value)} autoFocus />
+             <div className="flex gap-2 justify-end">
+                <button onClick={onCancelEdit} className="text-xs font-bold text-gray-500">Cancel</button>
+                <button onClick={handleSave} className="text-xs font-bold text-blue-500">Save</button>
+             </div>
+        </div>
+      ) : <HeaderContent />;
+  }
+
+  // Standard Text Styling
   const paragraphStyle = "text-lg md:text-xl font-serif text-gray-800 dark:text-gray-300 leading-loose indent-8 text-justify transition-colors duration-300";
 
-  // --- TOOLBAR ---
-  // Static horizontal row, right aligned. Pushes content down, never blocks.
   const Toolbar = () => (
     <div className="flex items-center justify-end gap-1 mb-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200" style={{ opacity: (isRefining || isEditing || isEditingNote) ? 1 : undefined }}>
-      <button onClick={(e) => { e.stopPropagation(); onToggleFavorite(block.id); }} title={t.actionFavorite} className={`p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${block.isFavorite ? 'text-red-500' : 'text-gray-300 dark:text-gray-600 hover:text-red-500'}`}>
-          <Heart className={`w-3.5 h-3.5 ${block.isFavorite ? 'fill-current' : ''}`}/>
-      </button>
-      <button onClick={(e) => { e.stopPropagation(); onToggleNote(block.id); }} title={t.actionNote} className={`p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${block.note ? 'text-yellow-600 dark:text-yellow-400' : 'text-gray-300 dark:text-gray-600 hover:text-yellow-500'}`}>
-          <FileText className={`w-3.5 h-3.5 ${block.note ? 'fill-current' : ''}`}/>
-      </button>
-      <button onClick={(e) => { e.stopPropagation(); onToggleRefine(block.id); }} title={t.actionRefine} className={`p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${isRefining ? 'text-indigo-500' : 'text-gray-300 dark:text-gray-600 hover:text-indigo-500'}`}>
-          <Sparkles className="w-3.5 h-3.5"/>
-      </button>
-      <button onClick={(e) => { e.stopPropagation(); onStartEdit(block.id, block.translated); }} title={t.actionEdit} className={`p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${isEditing ? 'text-blue-500' : 'text-gray-300 dark:text-gray-600 hover:text-blue-500'}`}>
-          <Edit2 className="w-3.5 h-3.5"/>
-      </button>
-      <button onClick={(e) => { e.stopPropagation(); onSetBookmark(block.id); }} title={t.actionBookmark} className={`p-1.5 rounded transition-colors ${isBookmarked ? 'text-[#990000]' : 'text-gray-300 dark:text-gray-600 hover:text-[#990000] hover:bg-gray-100 dark:hover:bg-gray-700'}`}>
-          <Bookmark className={`w-3.5 h-3.5 ${isBookmarked ? 'fill-current' : ''}`}/>
-      </button>
+       <Tooltip content={block.type === 'header' ? t.convertToText : t.convertToHeader}>
+        <button onClick={(e) => { e.stopPropagation(); onToggleBlockType(block.id); }} className={`p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${block.type === 'header' ? 'text-[#990000]' : 'text-gray-300 dark:text-gray-600 hover:text-gray-900 dark:hover:text-gray-200'}`}>
+            <Heading className="w-3.5 h-3.5"/>
+        </button>
+      </Tooltip>
+      <Tooltip content={t.actionFavorite}>
+        <button onClick={(e) => { e.stopPropagation(); onToggleFavorite(block.id); }} className={`p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${block.isFavorite ? 'text-red-500' : 'text-gray-300 dark:text-gray-600 hover:text-red-500'}`}>
+            <Heart className={`w-3.5 h-3.5 ${block.isFavorite ? 'fill-current' : ''}`}/>
+        </button>
+      </Tooltip>
+      <Tooltip content={t.actionNote}>
+        <button onClick={(e) => { e.stopPropagation(); onToggleNote(block.id); }} className={`p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${block.note ? 'text-yellow-600 dark:text-yellow-400' : 'text-gray-300 dark:text-gray-600 hover:text-yellow-500'}`}>
+            <FileText className={`w-3.5 h-3.5 ${block.note ? 'fill-current' : ''}`}/>
+        </button>
+      </Tooltip>
+      <Tooltip content={t.actionRefine}>
+        <button onClick={(e) => { e.stopPropagation(); onToggleRefine(block.id); }} className={`p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${isRefining ? 'text-indigo-500' : 'text-gray-300 dark:text-gray-600 hover:text-indigo-500'}`}>
+            <Sparkles className="w-3.5 h-3.5"/>
+        </button>
+      </Tooltip>
+      <Tooltip content={t.actionEdit}>
+        <button onClick={(e) => { e.stopPropagation(); onStartEdit(block.id, block.translated); }} className={`p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${isEditing ? 'text-blue-500' : 'text-gray-300 dark:text-gray-600 hover:text-blue-500'}`}>
+            <Edit2 className="w-3.5 h-3.5"/>
+        </button>
+      </Tooltip>
+      <Tooltip content={t.actionBookmark}>
+        <button onClick={(e) => { e.stopPropagation(); onSetBookmark(block.id); }} className={`p-1.5 rounded transition-colors ${isBookmarked ? 'text-[#990000]' : 'text-gray-300 dark:text-gray-600 hover:text-[#990000] hover:bg-gray-100 dark:hover:bg-gray-700'}`}>
+            <Bookmark className={`w-3.5 h-3.5 ${isBookmarked ? 'fill-current' : ''}`}/>
+        </button>
+      </Tooltip>
     </div>
   );
 
@@ -141,11 +198,10 @@ const TranslationBlockItem = React.memo(({
     </>
   );
 
-  // Layout for Translated Only
   if (isTranslatedOnly && !block.isLoading) {
     return (
       <div id={`block-${block.id}`} data-block-id={block.id} className={`translation-block-item group transition-all rounded-lg scroll-mt-32 ${isBookmarked ? 'border-l-4 border-[#990000] pl-4 -ml-5 bg-red-50/50 dark:bg-red-900/10 py-2' : ''}`}>
-        {isBookmarked && <div className="absolute -left-10 top-1 text-[#990000]" title={t.readingBookmark}><Bookmark className="w-5 h-5 fill-current" /></div>}
+        {isBookmarked && <div className="absolute -left-10 top-1 text-[#990000]"><Bookmark className="w-5 h-5 fill-current" /></div>}
         <Toolbar />
         {isRefining && <RefinePopover />}
         <div className={paragraphStyle}>{ContentJsx}</div>
@@ -153,7 +209,6 @@ const TranslationBlockItem = React.memo(({
     );
   }
 
-  // Layout for Side-by-Side / Interlinear
   return (
     <div id={`block-${block.id}`} data-block-id={block.id} className={`translation-block-item group transition-colors p-6 scroll-mt-32 ${isTranslatedOnly ? 'rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm my-6 bg-white dark:bg-[#1e1e1e]' : ''} ${isEditing ? 'bg-blue-50/50 dark:bg-blue-900/10' : 'hover:bg-gray-50 dark:hover:bg-white/5'} ${isBookmarked ? 'ring-2 ring-red-100 dark:ring-red-900/30 bg-red-50/20' : ''}`}>
       {isBookmarked && <div className="absolute -left-[1px] top-6 w-1 h-8 bg-[#990000] rounded-r"></div>}
@@ -162,10 +217,10 @@ const TranslationBlockItem = React.memo(({
       <div className={`grid gap-8 ${isSideBySide ? 'md:grid-cols-2 items-start' : 'grid-cols-1'}`}>
         {(showOriginal || isInterlinear) && (
           <div className={`${isSideBySide ? 'bg-gray-50/50 dark:bg-gray-900/50 p-5 rounded-xl border border-gray-100 dark:border-gray-800 text-base leading-relaxed text-gray-600 dark:text-gray-400' : 'text-gray-500 dark:text-gray-400 text-sm mb-3 border-l-2 border-gray-200 dark:border-gray-700 pl-4'} font-serif text-justify select-text`}>
-             {block.original}
+             <p lang="en">{block.original}</p>
           </div>
         )}
-        <div className="relative">
+        <div className="relative notranslate">
            {block.isLoading ? (
              <div className="animate-pulse space-y-4 py-2"><div className="h-2.5 bg-gray-200 dark:bg-gray-700 rounded-full w-full"></div><div className="h-2.5 bg-gray-200 dark:bg-gray-700 rounded-full w-5/6"></div><div className="h-2.5 bg-gray-200 dark:bg-gray-700 rounded-full w-4/6"></div></div>
            ) : ContentJsx}
@@ -174,13 +229,13 @@ const TranslationBlockItem = React.memo(({
     </div>
   );
 }, (prev, next) => {
-  // Custom equality check for React.memo optimization
   return (
     prev.block.id === next.block.id &&
     prev.block.translated === next.block.translated &&
     prev.block.note === next.block.note &&
     prev.block.isFavorite === next.block.isFavorite &&
     prev.block.isLoading === next.block.isLoading &&
+    prev.block.type === next.block.type && 
     prev.displayMode === next.displayMode &&
     prev.isBookmarked === next.isBookmarked &&
     prev.isEditing === next.isEditing &&
@@ -192,60 +247,89 @@ const TranslationBlockItem = React.memo(({
 // --- MAIN PARENT COMPONENT ---
 const TranslationReader: React.FC<TranslationReaderProps> = ({
   blocks, displayMode, fandom, targetLang, model, refinePromptTemplate, bookmarkBlockId,
-  onUpdateBlock, onLoadingStateChange, onToggleFavorite, onSetBookmark, onUpdateNote, onOpenSettings, lang = 'en'
+  title, author, percentComplete, isProcessing,
+  onUpdateBlock, onLoadingStateChange, onToggleFavorite, onSetBookmark, onUpdateNote, onToggleBlockType, onOpenSettings, onUpdateSource, onExport, onContinue, lang = 'en'
 }) => {
   const t = UI_STRINGS[lang];
   const [editingBlockId, setEditingBlockId] = useState<string | null>(null);
   const [noteEditingBlockId, setNoteEditingBlockId] = useState<string | null>(null);
   const [refiningBlockId, setRefiningBlockId] = useState<string | null>(null);
+  
+  // Chapter Navigation State
   const [showToc, setShowToc] = useState(false);
-  const [tocItems, setTocItems] = useState<{id: string, title: string}[]>([]);
+  const [currentChapterIdx, setCurrentChapterIdx] = useState(0);
+  
   const containerRef = useRef<HTMLDivElement>(null);
-  const visibleBlockIdRef = useRef<string | null>(null);
 
-  // Generate TOC efficiently
+  // Group Chapters with Filter
+  const chapters = useMemo(() => {
+     const chs: {index: number, title: string, startBlockId: string}[] = [];
+     let lastIndex = -1;
+     
+     const clean = (txt: string) => txt.replace(/^[#\s]+/, '');
+     
+     blocks.forEach(b => {
+         const idx = b.chapterIndex !== undefined ? b.chapterIndex : 0;
+         
+         // Only treat as a new chapter in TOC if it's explicitly marked as header
+         // OR if the index changes (legacy safety)
+         if (idx !== lastIndex) {
+             const headerText = b.type === 'header' ? clean(b.translated || b.original) : `Chapter ${idx + 1}`;
+             
+             // TOC Cleanup: Skip headers that are likely misidentified dialogue (too long)
+             if (headerText.length < 50) {
+                 chs.push({
+                     index: idx,
+                     title: headerText,
+                     startBlockId: b.id
+                 });
+             }
+             lastIndex = idx;
+         } else if (b.type === 'header' && chs.length > 0 && chs[chs.length-1].index === idx) {
+             const refinedTitle = clean(b.translated || b.original);
+             // Update title only if it looks like a real title (short)
+             if (refinedTitle.length < 50) {
+                chs[chs.length-1].title = refinedTitle;
+             }
+         }
+     });
+     
+     if (chs.length === 0 && blocks.length > 0) return [{index: 0, title: "Start", startBlockId: blocks[0].id}];
+     return chs;
+  }, [blocks]);
+
+  const displayedBlocks = useMemo(() => {
+      return blocks.filter(b => (b.chapterIndex || 0) === currentChapterIdx);
+  }, [blocks, currentChapterIdx]);
+
+  // Handle Initial Load / Bookmark Logic
   useEffect(() => {
-    const items: {id: string, title: string}[] = [];
-    blocks.forEach(b => {
-        const text = b.original.trim();
-        if (text.startsWith('##') || /^(Chapter|Epilogue|Prologue)\s+\d+/i.test(text) || (text.length < 40 && text === text.toUpperCase() && text.length > 3 && !text.includes('---'))) {
-            items.push({ id: b.id, title: b.original.replace(/^##\s*/, '').trim() });
+    // This runs once when component mounts (due to key={id} in parent)
+    if (bookmarkBlockId) {
+        const bookmarkedBlock = blocks.find(b => b.id === bookmarkBlockId);
+        if (bookmarkedBlock && bookmarkedBlock.chapterIndex !== undefined) {
+            // 1. Set Chapter
+            setCurrentChapterIdx(bookmarkedBlock.chapterIndex);
+            
+            // 2. Scroll to block (with slight delay for render)
+            setTimeout(() => {
+                const el = document.getElementById(`block-${bookmarkBlockId}`);
+                if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    // Visual cue
+                    el.classList.add('ring-2', 'ring-[#990000]', 'ring-offset-2');
+                    setTimeout(() => el.classList.remove('ring-2', 'ring-[#990000]', 'ring-offset-2'), 2000);
+                }
+            }, 300);
         }
-    });
-    setTocItems(items);
-  }, [blocks]); // Dependency on blocks is necessary, but blocks array ref changes on every update. 
-                 // Optimization: We could memoize this computation inside App, but blocks length isn't huge for this map.
-
-  // Scroll Observer (optimized)
-  useEffect(() => {
-    if (!containerRef.current) return;
-    const observer = new IntersectionObserver((entries) => {
-        const visible = entries.filter(e => e.isIntersecting);
-        if (visible.length > 0) {
-           visible.sort((a, b) => a.boundingClientRect.y - b.boundingClientRect.y);
-           const id = visible[0].target.getAttribute('data-block-id');
-           if (id) visibleBlockIdRef.current = id;
-        }
-    }, { root: null, rootMargin: '-80px 0px -90% 0px', threshold: 0 });
-    const blockElements = document.querySelectorAll('.translation-block-item');
-    blockElements.forEach(el => observer.observe(el));
-    return () => observer.disconnect();
-  }, [blocks.length, displayMode]); // Only re-attach if count changes
-
-  const scrollToBlock = useCallback((id: string) => {
-      document.getElementById(`block-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      setShowToc(false);
-  }, []);
+    } else {
+        setCurrentChapterIdx(0);
+        window.scrollTo({ top: 0, behavior: 'auto' });
+    }
+  }, []); // Run on mount
 
   const scrollToTop = useCallback(() => window.scrollTo({ top: 0, behavior: 'smooth' }), []);
 
-  // Restore scroll
-  useEffect(() => {
-    const targetId = visibleBlockIdRef.current || bookmarkBlockId;
-    if (targetId) setTimeout(() => document.getElementById(`block-${targetId}`)?.scrollIntoView({ behavior: 'auto', block: 'center' }), 50);
-  }, [displayMode, bookmarkBlockId]);
-
-  // --- Handlers wrapped in useCallback to keep identities stable ---
   const handleStartEdit = useCallback((id: string) => { setEditingBlockId(id); setRefiningBlockId(null); }, []);
   const handleCancelEdit = useCallback(() => setEditingBlockId(null), []);
   const handleSaveEdit = useCallback((id: string, text: string) => { onUpdateBlock(id, text); setEditingBlockId(null); }, [onUpdateBlock]);
@@ -266,33 +350,107 @@ const TranslationReader: React.FC<TranslationReaderProps> = ({
       finally { onLoadingStateChange(id, false); }
   }, [blocks, refinePromptTemplate, targetLang, fandom, onLoadingStateChange, onUpdateBlock]);
 
-  const containerStyle = isTranslatedOnly(displayMode) 
-    ? "max-w-[70ch] mx-auto px-6 py-10 space-y-6 bg-[#fdfbf7] dark:bg-[#1e1e1e] shadow-sm dark:shadow-none min-h-screen transition-colors duration-300 pb-32" 
-    : "divide-y divide-gray-100 dark:divide-gray-800 pb-32";
-
   function isTranslatedOnly(mode: DisplayMode) { return mode === DisplayMode.TRANSLATED_ONLY; }
 
   return (
     <div ref={containerRef} className={`mx-auto rounded-3xl transition-all duration-300 ${isTranslatedOnly(displayMode) ? 'bg-[#fdfbf7] dark:bg-[#1e1e1e] border-none shadow-none' : 'max-w-7xl bg-white dark:bg-[#1a1a1a] shadow-sm border border-gray-100 dark:border-gray-800'}`}>
-      {/* Floating Dock */}
-      <div className="fixed bottom-8 right-8 z-50 flex flex-col items-center gap-3 animate-in fade-in slide-in-from-bottom-6">
-        <button onClick={scrollToTop} className="p-3 bg-white/80 dark:bg-gray-800/80 backdrop-blur border border-gray-200 dark:border-gray-700 rounded-full shadow-lg text-gray-500 hover:text-[#990000] dark:hover:text-white transition-all hover:-translate-y-1"><ArrowUp className="w-5 h-5" /></button>
-        {bookmarkBlockId && <button onClick={() => scrollToBlock(bookmarkBlockId)} className="p-3 bg-white/80 dark:bg-gray-800/80 backdrop-blur border border-gray-200 dark:border-gray-700 rounded-full shadow-lg text-[#990000] dark:text-red-400 hover:scale-110 transition-all"><Bookmark className="w-5 h-5 fill-current" /></button>}
-        {tocItems.length > 0 && <button onClick={() => setShowToc(!showToc)} className={`p-3 backdrop-blur border rounded-full shadow-lg transition-all ${showToc ? 'bg-[#990000] border-[#990000] text-white' : 'bg-white/80 dark:bg-gray-800/80 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:text-[#990000]'}`}><List className="w-5 h-5" /></button>}
-        <button onClick={onOpenSettings} className="p-3 bg-[#990000] dark:bg-[#b30000] text-white rounded-full shadow-xl shadow-red-900/20 hover:bg-[#800000] hover:scale-105 transition-all"><Settings className="w-5 h-5" /></button>
+      
+      {/* --- HEADER SECTION (SCROLLS WITH CONTENT) --- */}
+      <div className="bg-white dark:bg-[#252525] border-b border-gray-100 dark:border-gray-800 p-6 md:p-8 rounded-t-3xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-sm">
+          <div>
+              <h1 className="font-serif font-black text-2xl md:text-3xl text-gray-900 dark:text-gray-100 mb-2 line-clamp-1">{title}</h1>
+              <div className="flex items-center gap-3 text-sm text-gray-500 dark:text-gray-400 font-medium">
+                  <span>{author}</span>
+                  <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
+                  <span className="truncate max-w-[200px]">{fandom}</span>
+              </div>
+          </div>
+          <div className="flex items-center gap-2">
+              {percentComplete < 100 && (
+                   <Tooltip content={t.resume}>
+                      <button 
+                          onClick={onContinue} 
+                          disabled={isProcessing}
+                          className="flex items-center gap-2 px-4 py-2.5 bg-[#990000] text-white rounded-xl font-bold text-sm shadow-lg shadow-red-900/20 hover:bg-[#800000] disabled:opacity-50 transition-all"
+                      >
+                          {isProcessing ? <Loader2 className="w-4 h-4 animate-spin"/> : <Play className="w-4 h-4 fill-current"/>}
+                          {isProcessing ? t.translating : t.resume}
+                      </button>
+                   </Tooltip>
+              )}
+
+              <Tooltip content={t.exportMD}>
+                  <button 
+                      onClick={() => onExport('markdown')} 
+                      className="p-2.5 text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition-colors border border-gray-100 dark:border-gray-700"
+                  >
+                      <FileDown className="w-5 h-5" />
+                  </button>
+              </Tooltip>
+          </div>
       </div>
 
-      {/* TOC */}
-      {showToc && tocItems.length > 0 && (
-        <div className="fixed top-20 right-24 w-64 max-h-[70vh] bg-white/95 dark:bg-[#1a1a1a]/95 backdrop-blur-md shadow-2xl rounded-2xl border border-gray-200 dark:border-gray-700 z-50 overflow-hidden flex flex-col animate-in slide-in-from-right-4 fade-in duration-200">
-           <div className="p-4 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50/50 dark:bg-gray-900/50"><h3 className="font-bold text-gray-900 dark:text-gray-100 text-sm">Table of Contents</h3><button onClick={() => setShowToc(false)} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4"/></button></div>
-           <div className="flex-1 overflow-y-auto p-2 custom-scrollbar">{tocItems.map((item, idx) => <button key={idx} onClick={() => scrollToBlock(item.id)} className="w-full text-left px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-[#990000] dark:hover:text-white transition-colors flex items-center gap-2 group"><ChevronRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity text-[#990000]" /><span className="line-clamp-1 font-serif">{item.title || `Section ${idx + 1}`}</span></button>)}</div>
+      {/* Floating Dock */}
+      <div className="fixed bottom-8 right-8 z-50 flex flex-col items-center gap-3 animate-in fade-in slide-in-from-bottom-6">
+        <Tooltip content={t.scrollTop} position="left">
+            <button onClick={scrollToTop} className="p-3 bg-white/80 dark:bg-gray-800/80 backdrop-blur border border-gray-200 dark:border-gray-700 rounded-full shadow-lg text-gray-500 hover:text-[#990000] dark:hover:text-white transition-all hover:-translate-y-1">
+                <ArrowUp className="w-5 h-5" />
+            </button>
+        </Tooltip>
+
+        {bookmarkBlockId && (
+            <Tooltip content={t.jumpToBookmark} position="left">
+                <button onClick={() => {
+                    const b = blocks.find(bl => bl.id === bookmarkBlockId);
+                    if(b && b.chapterIndex !== undefined) {
+                        setCurrentChapterIdx(b.chapterIndex);
+                        setTimeout(() => document.getElementById(`block-${bookmarkBlockId}`)?.scrollIntoView({behavior:'smooth', block:'center'}), 100);
+                    }
+                }} className="p-3 bg-white/80 dark:bg-gray-800/80 backdrop-blur border border-gray-200 dark:border-gray-700 rounded-full shadow-lg text-[#990000] dark:text-red-400 hover:scale-110 transition-all">
+                    <Bookmark className="w-5 h-5 fill-current" />
+                </button>
+            </Tooltip>
+        )}
+
+        <Tooltip content={t.updateSourceDesc} position="left">
+            <button onClick={onUpdateSource} className="p-3 bg-white/80 dark:bg-gray-800/80 backdrop-blur border border-gray-200 dark:border-gray-700 rounded-full shadow-lg text-blue-500 dark:text-blue-400 hover:text-blue-700 dark:hover:text-white transition-all hover:scale-105">
+                <Upload className="w-5 h-5" />
+            </button>
+        </Tooltip>
+
+        {chapters.length > 0 && (
+            <Tooltip content={t.toc} position="left">
+                <button onClick={() => setShowToc(!showToc)} className={`p-3 backdrop-blur border rounded-full shadow-lg transition-all ${showToc ? 'bg-[#990000] border-[#990000] text-white' : 'bg-white/80 dark:bg-gray-800/80 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:text-[#990000]'}`}>
+                    <List className="w-5 h-5" />
+                </button>
+            </Tooltip>
+        )}
+      </div>
+
+      {/* Chapter TOC Sidebar */}
+      {showToc && (
+        <div className="fixed top-20 right-4 sm:right-8 w-64 max-h-[70vh] bg-white/95 dark:bg-[#1a1a1a]/95 backdrop-blur-md shadow-2xl rounded-2xl border border-gray-200 dark:border-gray-700 z-50 overflow-hidden flex flex-col animate-in slide-in-from-right-4 fade-in duration-200">
+           <div className="p-4 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50/50 dark:bg-gray-900/50">
+             <h3 className="font-bold text-gray-900 dark:text-gray-100 text-sm flex items-center gap-2"><List className="w-4 h-4"/> {t.toc}</h3>
+             <button onClick={() => setShowToc(false)} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4"/></button>
+           </div>
+           <div className="flex-1 overflow-y-auto p-2 custom-scrollbar space-y-1">
+             {chapters.map((ch) => (
+               <button 
+                  key={ch.index} 
+                  onClick={() => { setCurrentChapterIdx(ch.index); setShowToc(false); scrollToTop(); }} 
+                  className={`w-full text-left px-3 py-2.5 rounded-lg text-xs md:text-sm transition-colors flex items-center gap-2 group ${currentChapterIdx === ch.index ? 'bg-[#990000] text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
+               >
+                 <span className="line-clamp-1 font-serif">{ch.title}</span>
+               </button>
+             ))}
+           </div>
         </div>
       )}
 
       {/* Blocks List */}
-      <div className={containerStyle}>
-         {blocks.map(block => (
+      <div className={isTranslatedOnly(displayMode) ? "max-w-[70ch] mx-auto px-6 py-10 space-y-6 bg-[#fdfbf7] dark:bg-[#1e1e1e] shadow-sm dark:shadow-none min-h-screen transition-colors duration-300 pb-32" : "divide-y divide-gray-100 dark:divide-gray-800 pb-32"}>
+         {displayedBlocks.map(block => (
            <TranslationBlockItem 
              key={block.id}
              block={block}
@@ -309,13 +467,37 @@ const TranslationReader: React.FC<TranslationReaderProps> = ({
              onUpdateNote={handleUpdateNoteLocal}
              onToggleFavorite={onToggleFavorite}
              onSetBookmark={onSetBookmark}
+             onToggleBlockType={onToggleBlockType}
              onRefine={handleRefine}
              t={t}
            />
          ))}
       </div>
+
+      {/* Pagination Controls */}
+      <div className="py-8 px-6 border-t border-gray-100 dark:border-gray-800 flex justify-between items-center">
+          <button 
+            onClick={() => { setCurrentChapterIdx(Math.max(0, currentChapterIdx - 1)); scrollToTop(); }}
+            disabled={currentChapterIdx === 0}
+            className={`flex items-center gap-2 px-5 py-3 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm text-sm font-bold transition-colors ${currentChapterIdx === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+          >
+              <ChevronLeft className="w-4 h-4" /> {t.previousChapter}
+          </button>
+          
+          <div className="text-xs font-bold uppercase tracking-widest text-gray-400">
+              {t.chapterXofY.replace('{{current}}', (currentChapterIdx + 1).toString()).replace('{{total}}', chapters.length.toString())}
+          </div>
+
+          <button 
+            onClick={() => { setCurrentChapterIdx(Math.min(chapters.length - 1, currentChapterIdx + 1)); scrollToTop(); }}
+            disabled={currentChapterIdx >= chapters.length - 1}
+            className={`flex items-center gap-2 px-5 py-3 rounded-xl text-white shadow-md text-sm font-bold transition-colors ${currentChapterIdx >= chapters.length - 1 ? 'bg-gray-300 dark:bg-gray-800 cursor-not-allowed text-gray-500' : 'bg-[#990000] hover:bg-[#800000]'}`}
+          >
+              {t.nextChapter} <ChevronRight className="w-4 h-4" />
+          </button>
+      </div>
       
-      {blocks.length === 0 && <div className="p-20 text-center text-gray-300 dark:text-gray-700 flex flex-col items-center justify-center min-h-[400px]"><BookOpen className="w-16 h-16 mb-4 opacity-20" /><p className="text-lg font-medium">No content to display.</p></div>}
+      {displayedBlocks.length === 0 && <div className="p-20 text-center text-gray-300 dark:text-gray-700 flex flex-col items-center justify-center min-h-[400px]"><BookOpen className="w-16 h-16 mb-4 opacity-20" /><p className="text-lg font-medium">{t.noContent}</p></div>}
     </div>
   );
 };

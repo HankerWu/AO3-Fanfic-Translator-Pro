@@ -10,6 +10,7 @@ interface SettingsProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: () => void;
+  fandom?: string;
   settings: {
     selectedModel: string;
     setSelectedModel: (v: string) => void;
@@ -33,27 +34,35 @@ interface SettingsProps {
   onRestorePrompt: () => void;
 }
 
-const ProjectSettingsModal: React.FC<SettingsProps> = ({ uiLang, isOpen, onClose, onSave, settings, onRestorePrompt }) => {
+const ProjectSettingsModal: React.FC<SettingsProps> = ({ uiLang, isOpen, onClose, onSave, settings, onRestorePrompt, fandom }) => {
   const t = UI_STRINGS[uiLang];
   const [isGeneratingGlossary, setIsGeneratingGlossary] = useState(false);
 
   if (!isOpen) return null;
 
-  // Attempt to read fandom from existing state (needs to be passed or inferred if possible, 
-  // but since modal is generic, we might skip full auto here or assume user inputs it)
-  // For now, let's allow it if we had access to fandom. 
-  // NOTE: This component doesn't receive 'fandom' prop currently. 
-  // We can just rely on the user manually typing or the previous auto-gen from the main input screen.
-  // OR we can make it purely manual here.
-  // However, requested feature was "Auto button". 
-  // Let's assume we might need to pass fandom prop later, but for now we'll skip the button inside this specific modal 
-  // if we don't have the context, OR we add a prompt asking for fandom.
-  // Given the user flow, the main input has the button. 
-  // Let's stick to adding it only if we can access the fandom, but without refactoring Main heavily, 
-  // let's leave the button in TranslationInput mainly, or add a simple "Magic" button that asks for Fandom.
+  const handleAutoGlossary = async () => {
+    if (!fandom || fandom === 'Unknown Fandom') {
+      alert("Please ensure a valid Fandom is detected or set in the main input screen before generating a glossary.");
+      return;
+    }
+    setIsGeneratingGlossary(true);
+    try {
+        const result = await generateFandomGlossary(fandom, settings.targetLang, settings.selectedModel);
+        if (result) {
+            const newGlossary = settings.glossary ? settings.glossary + '\n\n' + result : result;
+            settings.setGlossary(newGlossary);
+        } else {
+            alert("Glossary generation failed. Please check your API Quota.");
+        }
+    } catch (e) {
+        alert("Glossary generation error.");
+    } finally {
+        setIsGeneratingGlossary(false);
+    }
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-white dark:bg-[#1a1a1a] rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col border border-gray-200 dark:border-gray-800 transition-colors">
         {/* Header */}
         <div className="p-5 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50 dark:bg-gray-900/50">
@@ -61,7 +70,7 @@ const ProjectSettingsModal: React.FC<SettingsProps> = ({ uiLang, isOpen, onClose
             <Sliders className="w-5 h-5 text-[#990000]" />
             {t.advancedSettings}
           </h3>
-          <button onClick={onClose} className="text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-800 p-1.5 rounded-full transition-colors">
+          <button onClick={onClose} className="text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-800 p-1.5 rounded-full transition-colors" title="Close">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -140,7 +149,7 @@ const ProjectSettingsModal: React.FC<SettingsProps> = ({ uiLang, isOpen, onClose
               <div className="space-y-2">
                 <div className="flex justify-between items-center">
                   <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest">{t.systemPrompt}</label>
-                  <button onClick={onRestorePrompt} className="text-[10px] text-[#990000] dark:text-red-400 hover:underline font-bold uppercase tracking-tight">{t.restorePrompt}</button>
+                  <button onClick={onRestorePrompt} className="text-[10px] text-[#990000] dark:text-red-400 hover:underline font-bold uppercase tracking-tight" title="Reset to default prompt">{t.restorePrompt}</button>
                 </div>
                 <textarea 
                   value={settings.customPrompt} 
@@ -163,7 +172,20 @@ const ProjectSettingsModal: React.FC<SettingsProps> = ({ uiLang, isOpen, onClose
                      <p className="text-[10px] text-gray-400">Vars: {'{{original}}, {{translated}}, {{instruction}}'}</p>
                  </div>
                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest">{t.glossary}</label>
+                    <div className="flex justify-between items-center">
+                       <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest">{t.glossary}</label>
+                       {fandom && fandom !== 'Unknown Fandom' && (
+                            <button 
+                                onClick={handleAutoGlossary} 
+                                disabled={isGeneratingGlossary}
+                                className="flex items-center gap-1 text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline font-bold disabled:opacity-50 uppercase tracking-tight"
+                                title="Auto-generate glossary based on Fandom"
+                            >
+                                {isGeneratingGlossary ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                                {isGeneratingGlossary ? t.generating : t.autoGlossary}
+                            </button>
+                        )}
+                    </div>
                     <textarea 
                       value={settings.glossary} 
                       onChange={(e) => settings.setGlossary(e.target.value)} 
