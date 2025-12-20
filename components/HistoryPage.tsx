@@ -1,12 +1,13 @@
 
 import React, { useState, useMemo } from 'react';
-import { TranslationProject } from '../types';
+import { TranslationProject, ReadingSettings } from '../types';
 import { UI_STRINGS, LanguageCode } from '../services/i18n';
 import { 
   BookOpen, Clock, Search, Filter, Trash2, Upload, 
   ArrowRight, Archive, CheckCircle2, Circle, X, PlayCircle, Plus, FileUp, AlertTriangle, Globe, Link as LinkIcon
 } from 'lucide-react';
 import Tooltip from './Tooltip';
+import { useTheme } from './ThemeContext';
 
 interface HistoryPageProps {
   history: TranslationProject[];
@@ -20,6 +21,7 @@ interface HistoryPageProps {
   onImport: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onExport: () => void;
   onClose: () => void;
+  readingSettings: ReadingSettings;
 }
 
 const HistoryPage: React.FC<HistoryPageProps> = ({
@@ -33,9 +35,11 @@ const HistoryPage: React.FC<HistoryPageProps> = ({
   onClear,
   onImport,
   onExport,
-  onClose
+  onClose,
+  readingSettings
 }) => {
   const t = UI_STRINGS[lang];
+  const { theme } = useTheme();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterFandom, setFilterFandom] = useState('ALL');
   const [filterStatus, setFilterStatus] = useState('ALL'); // 'ALL', 'COMPLETED', 'IN_PROGRESS'
@@ -81,6 +85,25 @@ const HistoryPage: React.FC<HistoryPageProps> = ({
     }).sort((a, b) => b.lastModified - a.lastModified);
   }, [history, searchTerm, filterFandom, filterStatus]);
 
+  // --- Theme Logic (Matching App.tsx) ---
+  const isCustomTheme = readingSettings.paperTheme === 'custom';
+  const paperThemeClasses = useMemo(() => {
+     if (isCustomTheme) return 'text-gray-900 dark:text-gray-100'; 
+
+     if (theme === 'dark') {
+         if (readingSettings.paperTheme === 'midnight') return 'bg-[#1e293b] text-[#e2e8f0]';
+         return 'bg-[#1a1a1a] text-gray-200';
+     }
+
+     switch(readingSettings.paperTheme) {
+         case 'sepia': return 'bg-[#fdfbf7] text-[#5f4b32]';
+         case 'green': return 'bg-[#f0fdf4] text-[#14532d]';
+         case 'gray': return 'bg-[#f3f4f6] text-[#1f2937]';
+         case 'midnight': return 'bg-[#1e293b] text-[#e2e8f0]';
+         default: return 'bg-[#faf9f6] text-gray-900'; 
+     }
+  }, [readingSettings.paperTheme, theme, isCustomTheme]);
+
   const requestDelete = (e: React.MouseEvent, projectId: string) => {
       e.preventDefault();
       e.stopPropagation();
@@ -101,12 +124,35 @@ const HistoryPage: React.FC<HistoryPageProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 top-16 z-50 bg-[#faf9f6] dark:bg-[#121212] overflow-y-auto animate-in fade-in slide-in-from-bottom-4 duration-500 p-4 sm:p-8">
+    <div className={`fixed inset-0 top-16 z-50 overflow-y-auto animate-in fade-in slide-in-from-bottom-4 duration-500 p-4 sm:p-8 transition-colors ${paperThemeClasses}`}>
+       {/* Background Logic for Overlay */}
+       {isCustomTheme && readingSettings.customBgImage && (
+            <div 
+              className="fixed inset-0 z-0 pointer-events-none"
+              style={{ 
+                  backgroundImage: `url(${readingSettings.customBgImage})`,
+                  backgroundSize: 'cover',
+                  backgroundPosition: 'center',
+              }}
+            ></div>
+       )}
+       {isCustomTheme && (
+            <div 
+              className="fixed inset-0 z-[1] pointer-events-none transition-all duration-300"
+              style={{ 
+                  backgroundColor: theme === 'dark' ? `rgba(0,0,0,${readingSettings.overlayOpacity ?? 0.9})` : `rgba(255,255,255,${readingSettings.overlayOpacity ?? 0.9})`,
+                  backdropFilter: `blur(${readingSettings.overlayBlur ?? 0}px)`,
+                  WebkitBackdropFilter: `blur(${readingSettings.overlayBlur ?? 0}px)`,
+              }}
+            ></div>
+       )}
+
+       <div className="relative z-10">
        {/* Hidden inputs for file ops */}
        <input type="file" ref={fileInputRef} onChange={onImport} accept=".json" className="hidden" />
 
        {/* Header Section (Unified Style with FavoritesPage - Rounded Gradient Card) */}
-       <div className="relative bg-gradient-to-r from-gray-100 to-white dark:from-[#252525] dark:to-[#1a1a1a] rounded-3xl p-8 mb-8 border border-gray-200 dark:border-gray-800 overflow-hidden shadow-sm max-w-7xl mx-auto">
+       <div className="relative bg-gradient-to-r from-gray-100/80 to-white/80 dark:from-[#252525]/80 dark:to-[#1a1a1a]/80 backdrop-blur-md rounded-3xl p-8 mb-8 border border-gray-200/50 dark:border-gray-800/50 overflow-hidden shadow-sm max-w-7xl mx-auto">
             {/* Background Icon Decoration */}
             <div className="absolute top-0 right-0 p-8 opacity-[0.05] pointer-events-none">
                 <BookOpen className="w-64 h-64 text-gray-900 dark:text-white" />
@@ -133,13 +179,13 @@ const HistoryPage: React.FC<HistoryPageProps> = ({
                     </Tooltip>
 
                     <Tooltip content={t.exportHistory}>
-                        <button onClick={onExport} className="flex items-center gap-2 px-5 py-2.5 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 font-bold text-sm transition-colors">
+                        <button onClick={onExport} className="flex items-center gap-2 px-5 py-2.5 bg-white/90 dark:bg-gray-800/90 text-gray-700 dark:text-gray-200 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 font-bold text-sm transition-colors">
                             <Archive className="w-4 h-4" /> {t.exportHistory}
                         </button>
                     </Tooltip>
 
                     <Tooltip content={t.importHistory}>
-                        <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-5 py-2.5 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 font-bold text-sm transition-colors">
+                        <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-5 py-2.5 bg-white/90 dark:bg-gray-800/90 text-gray-700 dark:text-gray-200 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 font-bold text-sm transition-colors">
                             <Upload className="w-4 h-4" /> {t.importHistory}
                         </button>
                     </Tooltip>
@@ -155,9 +201,9 @@ const HistoryPage: React.FC<HistoryPageProps> = ({
 
        {/* Toolbar */}
        <div className="max-w-7xl mx-auto space-y-6">
-           <div className="flex flex-col md:flex-row gap-4 justify-between bg-white dark:bg-[#1e1e1e] p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-800">
+           <div className="flex flex-col md:flex-row gap-4 justify-between bg-white/80 dark:bg-[#1e1e1e]/80 backdrop-blur-md p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-800">
                {/* Search */}
-               <div className="relative flex-1 max-w-md">
+               <div className="relative flex-1 w-full md:max-w-md">
                    <Search className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
                    <input 
                        type="text" 
@@ -169,8 +215,8 @@ const HistoryPage: React.FC<HistoryPageProps> = ({
                </div>
                
                {/* Filters */}
-               <div className="flex gap-3 overflow-x-auto pb-1 md:pb-0">
-                   <div className="relative min-w-[200px]">
+               <div className="flex flex-wrap md:flex-nowrap gap-3">
+                   <div className="relative flex-1 md:flex-none md:min-w-[200px]">
                        <Filter className="absolute left-3 top-3 w-3.5 h-3.5 text-gray-500 z-10" />
                        <select 
                            value={filterFandom} 
@@ -185,7 +231,7 @@ const HistoryPage: React.FC<HistoryPageProps> = ({
                    <select 
                        value={filterStatus} 
                        onChange={(e) => setFilterStatus(e.target.value)}
-                       className="px-4 py-2.5 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-sm outline-none cursor-pointer hover:border-gray-300 dark:hover:border-gray-600"
+                       className="flex-1 md:flex-none px-4 py-2.5 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-sm outline-none cursor-pointer hover:border-gray-300 dark:hover:border-gray-600"
                    >
                        <option value="ALL">{t.filterStatus}</option>
                        <option value="IN_PROGRESS">{t.statusInProgress}</option>
@@ -209,7 +255,7 @@ const HistoryPage: React.FC<HistoryPageProps> = ({
                    const isComplete = percent === 100;
                    
                    return (
-                       <div key={project.id} className="group bg-white dark:bg-[#1e1e1e] border border-gray-200 dark:border-gray-800 rounded-xl p-5 hover:shadow-lg hover:border-[#990000]/30 transition-all duration-300 flex flex-col h-full min-h-[250px]">
+                       <div key={project.id} className="group bg-white/90 dark:bg-[#1e1e1e]/90 backdrop-blur-sm border border-gray-200 dark:border-gray-800 rounded-xl p-5 hover:shadow-lg hover:border-[#990000]/30 transition-all duration-300 flex flex-col h-full min-h-[250px]">
                            {/* Card Header */}
                            <div className="flex justify-between items-start mb-3">
                                <span className="bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded">
@@ -264,7 +310,7 @@ const HistoryPage: React.FC<HistoryPageProps> = ({
                                         </button>
                                     </Tooltip>
                                     
-                                    <Tooltip content={!isComplete ? t.resume : t.readProject}>
+                                    <Tooltip content={!isComplete ? t.resume : t.actionRead}>
                                         <button 
                                             onClick={() => onNavigateToProject(project)}
                                             className={`p-2 rounded-lg flex items-center gap-2 text-xs font-bold transition-all ${!isComplete ? 'bg-green-600 text-white hover:bg-green-700 shadow-md' : 'bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:opacity-80'}`}
@@ -282,7 +328,7 @@ const HistoryPage: React.FC<HistoryPageProps> = ({
                {/* Dashed 'Create New' Card - Last in list */}
                <div 
                   onClick={onCreateNew}
-                  className="group bg-gray-50/50 dark:bg-[#1e1e1e]/50 border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-xl p-5 hover:border-[#990000] dark:hover:border-red-500 hover:bg-white dark:hover:bg-[#1a1a1a] transition-all duration-300 flex flex-col items-center justify-center min-h-[250px] cursor-pointer"
+                  className="group bg-gray-50/50 dark:bg-[#1e1e1e]/50 border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-xl p-5 hover:border-[#990000] dark:hover:border-red-500 hover:bg-white/80 dark:hover:bg-[#1a1a1a]/80 transition-all duration-300 flex flex-col items-center justify-center min-h-[250px] cursor-pointer"
                >
                   <div className="p-4 bg-gray-100 dark:bg-gray-800 rounded-full group-hover:scale-110 transition-transform mb-4">
                       <Plus className="w-8 h-8 text-gray-400 group-hover:text-[#990000] dark:group-hover:text-red-400 transition-colors" />
@@ -291,6 +337,7 @@ const HistoryPage: React.FC<HistoryPageProps> = ({
                   <p className="text-sm text-gray-400 text-center mt-2 max-w-[200px]">{t.startNewDesc}</p>
                </div>
            </div>
+       </div>
        </div>
 
        {/* Custom Delete Confirmation Modal */}
@@ -302,7 +349,7 @@ const HistoryPage: React.FC<HistoryPageProps> = ({
                          <AlertTriangle className="w-6 h-6" />
                      </div>
                      <div className="space-y-2">
-                        <h3 className="text-lg font-bold text-gray-900 dark:text-white">{t.deleteProject}?</h3>
+                        <h3 className="text-lg font-bold text-gray-900 dark:text-white">{t.confirmDeleteProject}</h3>
                         <p className="text-sm text-gray-500 dark:text-gray-400">
                             {t.confirmDelete}
                         </p>

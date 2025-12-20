@@ -2,8 +2,15 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { TranslationBlock } from "../types";
 
-// Always use process.env.API_KEY directly as per instructions
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Helper to instantiate AI client dynamically
+const getAI = (customKey?: string) => {
+  // Prioritize custom key if provided and not empty/whitespace
+  const key = customKey?.trim() ? customKey.trim() : process.env.API_KEY;
+  if (!key) {
+    throw new Error("API Key is missing. Please provide a key in settings or configure the environment.");
+  }
+  return new GoogleGenAI({ apiKey: key });
+};
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -55,8 +62,9 @@ async function callWithRetry<T>(fn: () => Promise<T>, maxRetries: number = 3, ba
   throw new Error("Unreachable code");
 }
 
-export const identifyFandom = async (textSample: string, model: string): Promise<string> => {
+export const identifyFandom = async (textSample: string, model: string, apiKey?: string): Promise<string> => {
   try {
+    const ai = getAI(apiKey);
     const response = await ai.models.generateContent({
       model: model,
       contents: `Analyze the following text sample from a fanfiction. Identify the "Fandom" (the original work, show, book, or game it is based on). Return ONLY the name of the fandom. If unknown, return "General".\n\nText: "${textSample.substring(0, 1000)}..."`,
@@ -68,8 +76,9 @@ export const identifyFandom = async (textSample: string, model: string): Promise
   }
 };
 
-export const generateFandomGlossary = async (fandom: string, targetLang: string, model: string): Promise<string> => {
+export const generateFandomGlossary = async (fandom: string, targetLang: string, model: string, apiKey?: string): Promise<string> => {
   try {
+    const ai = getAI(apiKey);
     const prompt = `Task: Create a concise glossary for the fandom "${fandom}".
     Target Language: ${targetLang}
     
@@ -101,6 +110,7 @@ interface TranslationOptions {
   tags?: string[];
   tagInstruction?: string;
   glossary?: string;
+  apiKey?: string; // Add apiKey option
 }
 
 export const translateBatch = async (
@@ -110,7 +120,7 @@ export const translateBatch = async (
   options: TranslationOptions
 ): Promise<string[]> => {
   
-  const { model, customPrompt, previousContext, tags, tagInstruction, glossary } = options;
+  const { model, customPrompt, previousContext, tags, tagInstruction, glossary, apiKey } = options;
 
   const systemInstruction = customPrompt || `You are a professional literary translator specializing in Fanfiction.`;
 
@@ -151,6 +161,7 @@ export const translateBatch = async (
 
   // Wrap the actual API call in our retry logic
   return callWithRetry(async () => {
+    const ai = getAI(apiKey);
     const response = await ai.models.generateContent({
       model: model,
       contents: prompt,
@@ -181,7 +192,8 @@ export const refineBlock = async (
   fandom: string, 
   model: string,
   userInstruction: string,
-  promptTemplate: string
+  promptTemplate: string,
+  apiKey?: string
 ): Promise<string> => {
   
   const systemInstruction = `You are a professional literary translator and editor. 
@@ -197,6 +209,7 @@ Do not output explanation. Do not output markdown code fences.`;
     .replace('{{instruction}}', userInstruction);
 
   try {
+    const ai = getAI(apiKey);
     const response = await ai.models.generateContent({
       model: model,
       contents: prompt,

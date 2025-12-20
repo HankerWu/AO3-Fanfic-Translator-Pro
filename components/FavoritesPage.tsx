@@ -1,10 +1,11 @@
 
 import React, { useState, useMemo } from 'react';
-import { TranslationProject } from '../types';
+import { TranslationProject, ReadingSettings } from '../types';
 import { UI_STRINGS, LanguageCode } from '../services/i18n';
 import { Heart, FileText, ArrowRight, Trash2, X, FileDown, Archive, Quote, Search, Filter } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import Tooltip from './Tooltip';
+import { useTheme } from './ThemeContext';
 
 interface FavoritesPageProps {
   history: TranslationProject[];
@@ -14,6 +15,7 @@ interface FavoritesPageProps {
   onRemoveFavorite: (projectId: string, blockId: string) => void;
   onExportBackup: () => void;
   onClose: () => void;
+  readingSettings: ReadingSettings;
 }
 
 const FavoritesPage: React.FC<FavoritesPageProps> = ({
@@ -23,9 +25,11 @@ const FavoritesPage: React.FC<FavoritesPageProps> = ({
   onUpdateNote,
   onRemoveFavorite,
   onExportBackup,
-  onClose
+  onClose,
+  readingSettings
 }) => {
   const t = UI_STRINGS[lang];
+  const { theme } = useTheme();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterFandom, setFilterFandom] = useState('ALL');
 
@@ -68,6 +72,25 @@ const FavoritesPage: React.FC<FavoritesPageProps> = ({
      });
   }, [allFavorites, searchTerm, filterFandom]);
 
+  // --- Theme Logic (Matching App.tsx) ---
+  const isCustomTheme = readingSettings.paperTheme === 'custom';
+  const paperThemeClasses = useMemo(() => {
+     if (isCustomTheme) return 'text-gray-900 dark:text-gray-100'; 
+
+     if (theme === 'dark') {
+         if (readingSettings.paperTheme === 'midnight') return 'bg-[#1e293b] text-[#e2e8f0]';
+         return 'bg-[#1a1a1a] text-gray-200';
+     }
+
+     switch(readingSettings.paperTheme) {
+         case 'sepia': return 'bg-[#fdfbf7] text-[#5f4b32]';
+         case 'green': return 'bg-[#f0fdf4] text-[#14532d]';
+         case 'gray': return 'bg-[#f3f4f6] text-[#1f2937]';
+         case 'midnight': return 'bg-[#1e293b] text-[#e2e8f0]';
+         default: return 'bg-[#faf9f6] text-gray-900'; 
+     }
+  }, [readingSettings.paperTheme, theme, isCustomTheme]);
+
   const exportFavoritesToMarkdown = () => {
     let content = `# ${t.favoritesTitle}\n\n${t.generatedBy}\n\n---\n\n`;
     filteredFavorites.forEach(({ block, projectMeta }) => {
@@ -87,10 +110,33 @@ const FavoritesPage: React.FC<FavoritesPageProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 top-16 z-50 bg-[#faf9f6] dark:bg-[#121212] overflow-y-auto animate-in fade-in slide-in-from-bottom-4 duration-500 p-4 sm:p-8">
+    <div className={`fixed inset-0 top-16 z-50 overflow-y-auto animate-in fade-in slide-in-from-bottom-4 duration-500 p-4 sm:p-8 transition-colors ${paperThemeClasses}`}>
       
+      {/* Background Logic for Overlay */}
+      {isCustomTheme && readingSettings.customBgImage && (
+            <div 
+              className="fixed inset-0 z-0 pointer-events-none"
+              style={{ 
+                  backgroundImage: `url(${readingSettings.customBgImage})`,
+                  backgroundSize: 'cover',
+                  backgroundPosition: 'center',
+              }}
+            ></div>
+       )}
+       {isCustomTheme && (
+            <div 
+              className="fixed inset-0 z-[1] pointer-events-none transition-all duration-300"
+              style={{ 
+                  backgroundColor: theme === 'dark' ? `rgba(0,0,0,${readingSettings.overlayOpacity ?? 0.9})` : `rgba(255,255,255,${readingSettings.overlayOpacity ?? 0.9})`,
+                  backdropFilter: `blur(${readingSettings.overlayBlur ?? 0}px)`,
+                  WebkitBackdropFilter: `blur(${readingSettings.overlayBlur ?? 0}px)`,
+              }}
+            ></div>
+       )}
+
+      <div className="relative z-10">
       {/* Header Section */}
-      <div className="relative bg-gradient-to-r from-red-50 to-white dark:from-[#2a1a1a] dark:to-[#1a1a1a] rounded-3xl p-8 mb-8 border border-red-100 dark:border-red-900/30 overflow-hidden shadow-sm max-w-7xl mx-auto">
+      <div className="relative bg-gradient-to-r from-red-50/80 to-white/80 dark:from-[#2a1a1a]/80 dark:to-[#1a1a1a]/80 backdrop-blur-md rounded-3xl p-8 mb-8 border border-red-100/50 dark:border-red-900/30 overflow-hidden shadow-sm max-w-7xl mx-auto">
         <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
             <Heart className="w-64 h-64 text-[#990000]" />
         </div>
@@ -112,7 +158,7 @@ const FavoritesPage: React.FC<FavoritesPageProps> = ({
               <Tooltip content={t.backupDescription}>
                 <button 
                     onClick={onExportBackup}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 font-bold text-sm transition-colors"
+                    className="flex items-center gap-2 px-5 py-2.5 bg-white/90 dark:bg-gray-800/90 text-gray-700 dark:text-gray-200 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 font-bold text-sm transition-colors"
                 >
                     <Archive className="w-4 h-4" /> {t.exportFavorites}
                 </button>
@@ -121,7 +167,7 @@ const FavoritesPage: React.FC<FavoritesPageProps> = ({
               <Tooltip content={t.exportText}>
                 <button 
                     onClick={exportFavoritesToMarkdown}
-                    className="flex items-center gap-2 px-5 py-2.5 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 font-bold text-sm transition-colors"
+                    className="flex items-center gap-2 px-5 py-2.5 bg-white/90 dark:bg-gray-800/90 text-gray-700 dark:text-gray-200 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 font-bold text-sm transition-colors"
                 >
                     <FileDown className="w-4 h-4" /> {t.exportFavoritesMD}
                 </button>
@@ -140,7 +186,7 @@ const FavoritesPage: React.FC<FavoritesPageProps> = ({
       <div className="max-w-7xl mx-auto space-y-8">
         
         {/* Toolbar */}
-        <div className="flex flex-col md:flex-row gap-4 justify-between bg-white dark:bg-[#1e1e1e] p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-800">
+        <div className="flex flex-col md:flex-row gap-4 justify-between bg-white/80 dark:bg-[#1e1e1e]/80 backdrop-blur-md p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-800">
              {/* Search */}
              <div className="relative flex-1 max-w-md">
                  <Search className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
@@ -168,8 +214,8 @@ const FavoritesPage: React.FC<FavoritesPageProps> = ({
         </div>
 
         {filteredFavorites.length === 0 ? (
-           <div className="flex flex-col items-center justify-center py-32 bg-white dark:bg-[#1e1e1e] rounded-3xl border-2 border-dashed border-gray-200 dark:border-gray-800 text-center space-y-6">
-               <div className="bg-gray-50 dark:bg-gray-800 p-6 rounded-full">
+           <div className="flex flex-col items-center justify-center py-32 bg-white/50 dark:bg-[#1e1e1e]/50 backdrop-blur-sm rounded-3xl border-2 border-dashed border-gray-200 dark:border-gray-800 text-center space-y-6">
+               <div className="bg-gray-50/50 dark:bg-gray-800/50 p-6 rounded-full">
                    <Heart className="w-16 h-16 text-gray-300 dark:text-gray-600" />
                </div>
                <div className="max-w-md space-y-2">
@@ -180,7 +226,7 @@ const FavoritesPage: React.FC<FavoritesPageProps> = ({
         ) : (
            <div className="grid grid-cols-1 gap-8 pb-20">
               {filteredFavorites.map(({ block, projectMeta, projectId }) => (
-                 <div key={`${projectId}-${block.id}`} className="group bg-white dark:bg-[#1a1a1a] rounded-2xl shadow-sm hover:shadow-xl hover:shadow-gray-200/50 dark:hover:shadow-black/50 border border-gray-200 dark:border-gray-800 transition-all duration-300">
+                 <div key={`${projectId}-${block.id}`} className="group bg-white/90 dark:bg-[#1a1a1a]/90 backdrop-blur-sm rounded-2xl shadow-sm hover:shadow-xl hover:shadow-gray-200/50 dark:hover:shadow-black/50 border border-gray-200 dark:border-gray-800 transition-all duration-300">
                     {/* Card Header */}
                     <div className="px-6 py-4 bg-gray-50/50 dark:bg-gray-900/30 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center rounded-t-2xl">
                         <div className="flex items-center gap-3 overflow-hidden">
@@ -238,7 +284,7 @@ const FavoritesPage: React.FC<FavoritesPageProps> = ({
                         </div>
 
                         {/* Notes Section */}
-                        <div className="bg-amber-50 dark:bg-amber-900/10 rounded-xl p-4 border border-amber-100 dark:border-amber-900/30 transition-colors">
+                        <div className="bg-amber-50/50 dark:bg-amber-900/10 rounded-xl p-4 border border-amber-100/50 dark:border-amber-900/30 transition-colors">
                             <div className="flex items-start gap-3">
                                 <FileText className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-1 shrink-0" />
                                 <div className="flex-1 space-y-1">
@@ -258,6 +304,7 @@ const FavoritesPage: React.FC<FavoritesPageProps> = ({
               ))}
            </div>
         )}
+      </div>
       </div>
     </div>
   );

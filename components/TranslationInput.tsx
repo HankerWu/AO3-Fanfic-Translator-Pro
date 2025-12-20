@@ -39,6 +39,7 @@ interface InputProps {
   onRemoveTag: (tag: string) => void;
   isProcessing: boolean;
   onStart: () => void;
+  customApiKey: string; // New Prop
 }
 
 const TranslationInput: React.FC<InputProps> = (props) => {
@@ -63,15 +64,15 @@ const TranslationInput: React.FC<InputProps> = (props) => {
      if (!props.detectedMeta?.fandom) return;
      setIsGeneratingGlossary(true);
      try {
-         const result = await generateFandomGlossary(props.detectedMeta.fandom, props.targetLang, props.selectedModel);
+         const result = await generateFandomGlossary(props.detectedMeta.fandom, props.targetLang, props.selectedModel, props.customApiKey);
          if (result) {
              props.setGlossary(result);
              showToast(t.toastGlossaryAppended, "success");
          } else {
-             showToast("Glossary generation failed. Please check quota.", "error");
+             showToast(t.glossaryQuota, "error");
          }
      } catch (e) {
-         showToast("Glossary generation error.", "error");
+         showToast(t.glossaryError, "error");
      } finally {
          setIsGeneratingGlossary(false);
      }

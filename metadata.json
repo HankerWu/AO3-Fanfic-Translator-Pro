@@ -1,5 +1,5 @@
 {
-  "name": "AO3 Fanfic Translator Pro",
+  "name": "AO3 Reader",
   "description": "An advanced tool powered by Gemini 3 to translate, optimize, and format fanfiction with fandom-aware context.",
   "requestFramePermissions": []
 }

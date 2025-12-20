@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { TranslationProject, TranslationBlock, DisplayMode, SUPPORTED_LANGUAGES, AVAILABLE_MODELS, FicMetadata, DEFAULT_PROMPT, DEFAULT_REFINE_PROMPT, ReadingSettings, BackupSettings } from './types';
 import { identifyFandom, translateBatch } from './services/geminiService';
 import { splitTextIntoBlocks, generateId, exportTranslation, parseUploadedFile, sanitizeProjectData, mergeProjectBlocks, calculateSimilarity, recalculateChapterIndices, fetchAO3FromProxy } from './services/utils';
@@ -10,7 +10,7 @@ import FavoritesPage from './components/FavoritesPage';
 import Navbar from './components/Navbar';
 import TranslationInput from './components/TranslationInput';
 import ProjectSettingsModal from './components/ProjectSettingsModal';
-import { ThemeProvider } from './components/ThemeContext';
+import { ThemeProvider, useTheme } from './components/ThemeContext';
 import { ToastProvider, useToast } from './components/ToastContext';
 import { UI_STRINGS, LanguageCode } from './services/i18n';
 import Tooltip from './components/Tooltip';
@@ -19,6 +19,7 @@ import Tooltip from './components/Tooltip';
 const AppContent: React.FC = () => {
   const [uiLang, setUiLang] = useState<LanguageCode>('zh'); 
   const t = UI_STRINGS[uiLang];
+  const { theme } = useTheme(); // Now inside ThemeProvider
   const { showToast } = useToast();
 
   const [inputUrl, setInputUrl] = useState('');
@@ -70,6 +71,9 @@ const AppContent: React.FC = () => {
   const [tagInstruction, setTagInstruction] = useState('Use tags to understand context; translate only if they appear in text.');
   const [glossary, setGlossary] = useState('');
   
+  // New: Custom API Key State
+  const [customApiKey, setCustomApiKey] = useState(() => localStorage.getItem('ao3_custom_api_key') || '');
+
   const [isProcessing, setIsProcessing] = useState(false);
   const stopProcessingRef = useRef(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
@@ -110,6 +114,11 @@ const AppContent: React.FC = () => {
         localStorage.setItem('ao3_backup_settings', JSON.stringify(backupSettings)); 
       } catch (e) { console.error("Failed to save backup settings:", e); }
   }, [backupSettings]);
+
+  // Persist Custom API Key
+  useEffect(() => {
+      localStorage.setItem('ao3_custom_api_key', customApiKey);
+  }, [customApiKey]);
 
   // Auto Backup Interval
   useEffect(() => {
@@ -231,6 +240,37 @@ const AppContent: React.FC = () => {
       setDetectedMeta(null);
   };
 
+  const handleImportSettings = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const fileReader = new FileReader();
+      if(e.target.files && e.target.files[0]) {
+          fileReader.readAsText(e.target.files[0], "UTF-8");
+          fileReader.onload = (event) => {
+              try {
+                  const imported = JSON.parse(event.target?.result as string);
+                  if (imported.settings) {
+                      if(imported.settings.reading) setReadingSettings(imported.settings.reading);
+                      if(imported.settings.backup) setBackupSettings(imported.settings.backup);
+                      if(imported.settings.translation) {
+                          const ts = imported.settings.translation;
+                          if(ts.targetLang) setTargetLang(ts.targetLang);
+                          if(ts.selectedModel) setSelectedModel(ts.selectedModel);
+                          if(ts.batchSize) setBatchSize(ts.batchSize);
+                          if(ts.customPrompt) setCustomPrompt(ts.customPrompt);
+                          if(ts.glossary) setGlossary(ts.glossary);
+                          if(ts.refinePromptTemplate) setRefinePromptTemplate(ts.refinePromptTemplate);
+                          if(ts.contextWindow !== undefined) setContextWindow(ts.contextWindow);
+                          if(ts.includeTags !== undefined) setIncludeTags(ts.includeTags);
+                          if(ts.tagInstruction) setTagInstruction(ts.tagInstruction);
+                      }
+                      showToast("Configuration restored successfully.", "success");
+                  } else {
+                      showToast("No settings found in file.", "error");
+                  }
+              } catch (err) { showToast(t.errorImport, "error"); }
+          };
+      }
+  };
+
   const handleStart = async () => {
     stopProcessingRef.current = false;
     let projectToUse: TranslationProject;
@@ -277,7 +317,7 @@ const AppContent: React.FC = () => {
            }
         } else { setIsProcessing(false); return; }
 
-        if (fandom === "Unknown" && targetLang !== 'original') fandom = await identifyFandom(blocks.slice(0, 3).map((b: any) => b.original).join('\n'), selectedModel);
+        if (fandom === "Unknown" && targetLang !== 'original') fandom = await identifyFandom(blocks.slice(0, 3).map((b: any) => b.original).join('\n'), selectedModel, customApiKey);
 
         projectToUse = {
           id: generateId(),
@@ -365,7 +405,8 @@ const AppContent: React.FC = () => {
                   previousContext: contextBuffer.join('\n'), 
                   tags: includeTags ? projectToUse.metadata.tags : [], 
                   tagInstruction, 
-                  glossary 
+                  glossary,
+                  apiKey: customApiKey // Pass custom key
               }
           );
           indices.forEach((realIdx, mapIdx) => { 
@@ -651,6 +692,25 @@ const AppContent: React.FC = () => {
       }
   };
 
+  // --- Theme Logic ---
+  const isCustomTheme = readingSettings.paperTheme === 'custom';
+  const paperThemeClasses = useMemo(() => {
+     if (isCustomTheme) return 'text-gray-900 dark:text-gray-100'; 
+
+     if (theme === 'dark') {
+         if (readingSettings.paperTheme === 'midnight') return 'bg-[#1e293b] text-[#e2e8f0]';
+         return 'bg-[#1a1a1a] text-gray-200';
+     }
+
+     switch(readingSettings.paperTheme) {
+         case 'sepia': return 'bg-[#fdfbf7] text-[#5f4b32]';
+         case 'green': return 'bg-[#f0fdf4] text-[#14532d]';
+         case 'gray': return 'bg-[#f3f4f6] text-[#1f2937]';
+         case 'midnight': return 'bg-[#1e293b] text-[#e2e8f0]';
+         default: return 'bg-[#faf9f6] text-gray-900'; 
+     }
+  }, [readingSettings.paperTheme, theme, isCustomTheme]);
+
   const renderMainContent = () => {
     if (!currentProject) {
       return (
@@ -665,6 +725,7 @@ const AppContent: React.FC = () => {
             glossary={glossary} setGlossary={setGlossary} onRestorePrompt={() => { setCustomPrompt(DEFAULT_PROMPT); setRefinePromptTemplate(DEFAULT_REFINE_PROMPT); }}
             onRemoveTag={(t) => setDetectedMeta((prev: any) => ({ ...prev, tags: prev.tags.filter((x: string) => x !== t) }))}
             isProcessing={isProcessing} onStart={handleStart}
+            customApiKey={customApiKey}
         />
       );
     } else {
@@ -696,72 +757,104 @@ const AppContent: React.FC = () => {
              onContinue={handleStart}
              lang={uiLang}
              readingSettings={readingSettings} 
+             customApiKey={customApiKey}
         />
       );
     }
   };
 
   return (
-      <div className="min-h-screen bg-[#faf9f6] dark:bg-[#121212] text-gray-800 dark:text-gray-200 font-sans selection:bg-red-100 dark:selection:bg-red-900/30 selection:text-red-900 transition-colors">
-        <input type="file" ref={updateInputRef} onChange={handleUpdateFileSelect} accept=".html,.htm,.txt" className="hidden" />
-        
-        <Navbar 
-          uiLang={uiLang} setUiLang={setUiLang} 
-          showFavorites={activeOverlay === 'favorites'} setShowFavorites={toggleFavorites} 
-          showHistory={activeOverlay === 'history'} toggleHistory={toggleHistory}
-          hasHistory={history.length > 0} 
-          currentProject={currentProject} displayMode={displayMode} setDisplayMode={setDisplayMode} 
-          onHome={handleCreateNew}
-          onOpenSettings={() => setShowProjectSettingsModal(true)}
-          onSaveData={handleExportHistory}
-        />
-        
-        <div className={`transition-all duration-300 ${activeOverlay !== 'none' ? 'scale-[0.98] opacity-50 overflow-hidden h-[calc(100vh-64px)]' : ''}`}>
-           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-             {renderMainContent()}
-           </main>
-        </div>
-
-        {activeOverlay === 'history' && (
-           <HistoryPage 
-              history={history} lang={uiLang} 
-              onNavigateToProject={(p) => { setCurrentProject(p); closeOverlays(); }}
-              onCreateNew={handleCreateNew}
-              onTriggerUpdate={triggerUpdateProject}
-              onUpdateFromUrl={handleUpdateFromUrl}
-              onDelete={deleteHistoryItem} 
-              onClear={() => { 
-                  if(confirm(t.confirmClear)) { setHistory([]); setCurrentProject(null); }
+      <div 
+        className={`min-h-screen font-sans selection:bg-red-100 dark:selection:bg-red-900/30 selection:text-red-900 transition-colors duration-300 ease-in-out relative ${paperThemeClasses}`}
+      >
+        {/* Background Logic */}
+        {isCustomTheme && readingSettings.customBgImage && (
+            <div 
+              className="fixed inset-0 z-0 pointer-events-none"
+              style={{ 
+                  backgroundImage: `url(${readingSettings.customBgImage})`,
+                  backgroundSize: 'cover',
+                  backgroundPosition: 'center',
               }}
-              onImport={handleImportHistory} onExport={handleExportHistory} onClose={closeOverlays}
-           />
+            ></div>
+        )}
+        {isCustomTheme && (
+            <div 
+              className="fixed inset-0 z-[1] pointer-events-none transition-all duration-300"
+              style={{ 
+                  backgroundColor: theme === 'dark' ? `rgba(0,0,0,${readingSettings.overlayOpacity ?? 0.9})` : `rgba(255,255,255,${readingSettings.overlayOpacity ?? 0.9})`,
+                  backdropFilter: `blur(${readingSettings.overlayBlur ?? 0}px)`,
+                  WebkitBackdropFilter: `blur(${readingSettings.overlayBlur ?? 0}px)`,
+              }}
+            ></div>
         )}
 
-        {activeOverlay === 'favorites' && (
-            <FavoritesPage 
-               history={history} lang={uiLang} 
-               onNavigateToProject={(pid, bid) => { 
-                   const p = history.find(x => x.id === pid); 
-                   if(p) { setCurrentProject(p); handleSetBookmark(bid); closeOverlays(); }
-               }}
-               onUpdateNote={(pid, bid, n) => handleUpdateNote(pid, bid, n)}
-               onRemoveFavorite={(pid, bid) => handleToggleFavorite(pid, bid)}
-               onExportBackup={handleExportHistory}
-               onClose={closeOverlays}
+        {/* Main Content Wrapper (z-10 to stay above bg) */}
+        <div className="relative z-10">
+            <input type="file" ref={updateInputRef} onChange={handleUpdateFileSelect} accept=".html,.htm,.txt" className="hidden" />
+            
+            <Navbar 
+            uiLang={uiLang} setUiLang={setUiLang} 
+            showFavorites={activeOverlay === 'favorites'} setShowFavorites={toggleFavorites} 
+            showHistory={activeOverlay === 'history'} toggleHistory={toggleHistory}
+            hasHistory={history.length > 0} 
+            currentProject={currentProject} displayMode={displayMode} setDisplayMode={setDisplayMode} 
+            onHome={handleCreateNew}
+            onOpenSettings={() => setShowProjectSettingsModal(true)}
+            onSaveData={handleExportHistory}
             />
-        )}
+            
+            <div className={`transition-all duration-300 ${activeOverlay !== 'none' ? 'scale-[0.98] opacity-50 overflow-hidden h-[calc(100vh-64px)]' : ''}`}>
+                <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                    {renderMainContent()}
+                </main>
+            </div>
 
-        <ProjectSettingsModal 
-           uiLang={uiLang} isOpen={showProjectSettingsModal} onClose={() => setShowProjectSettingsModal(false)} onSave={handleSaveProjectSettings}
-           fandom={currentProject?.metadata.fandom || detectedMeta?.fandom}
-           settings={{ 
-               selectedModel, setSelectedModel, targetLang, setTargetLang, batchSize, setBatchSize, contextWindow, setContextWindow, 
-               customPrompt, setCustomPrompt, refinePromptTemplate, setRefinePromptTemplate, glossary, setGlossary, includeTags, setIncludeTags, tagInstruction, setTagInstruction 
-           }}
-           readingSettings={readingSettings} setReadingSettings={setReadingSettings}
-           backupSettings={backupSettings} setBackupSettings={setBackupSettings} onBackupNow={handleExportHistory}
-           onRestorePrompt={() => { setCustomPrompt(DEFAULT_PROMPT); setRefinePromptTemplate(DEFAULT_REFINE_PROMPT); }}
-        />
+            {activeOverlay === 'history' && (
+            <HistoryPage 
+                history={history} lang={uiLang} 
+                onNavigateToProject={(p) => { setCurrentProject(p); closeOverlays(); }}
+                onCreateNew={handleCreateNew}
+                onTriggerUpdate={triggerUpdateProject}
+                onUpdateFromUrl={handleUpdateFromUrl}
+                onDelete={deleteHistoryItem} 
+                onClear={() => { 
+                    if(confirm(t.confirmClear)) { setHistory([]); setCurrentProject(null); }
+                }}
+                onImport={handleImportHistory} onExport={handleExportHistory} onClose={closeOverlays}
+                readingSettings={readingSettings} // Pass settings for bg
+            />
+            )}
+
+            {activeOverlay === 'favorites' && (
+                <FavoritesPage 
+                history={history} lang={uiLang} 
+                onNavigateToProject={(pid, bid) => { 
+                    const p = history.find(x => x.id === pid); 
+                    if(p) { setCurrentProject(p); handleSetBookmark(bid); closeOverlays(); }
+                }}
+                onUpdateNote={(pid, bid, n) => handleUpdateNote(pid, bid, n)}
+                onRemoveFavorite={(pid, bid) => handleToggleFavorite(pid, bid)}
+                onExportBackup={handleExportHistory}
+                onClose={closeOverlays}
+                readingSettings={readingSettings} // Pass settings for bg
+                />
+            )}
+
+            <ProjectSettingsModal 
+                uiLang={uiLang} isOpen={showProjectSettingsModal} onClose={() => setShowProjectSettingsModal(false)} onSave={handleSaveProjectSettings}
+                fandom={currentProject?.metadata.fandom || detectedMeta?.fandom}
+                settings={{ 
+                    selectedModel, setSelectedModel, targetLang, setTargetLang, batchSize, setBatchSize, contextWindow, setContextWindow, 
+                    customPrompt, setCustomPrompt, refinePromptTemplate, setRefinePromptTemplate, glossary, setGlossary, includeTags, setIncludeTags, tagInstruction, setTagInstruction,
+                    customApiKey, setCustomApiKey
+                }}
+                readingSettings={readingSettings} setReadingSettings={setReadingSettings}
+                backupSettings={backupSettings} setBackupSettings={setBackupSettings} onBackupNow={handleExportHistory}
+                onImportSettings={handleImportSettings} // Pass handler
+                onRestorePrompt={() => { setCustomPrompt(DEFAULT_PROMPT); setRefinePromptTemplate(DEFAULT_REFINE_PROMPT); }}
+            />
+        </div>
       </div>
   );
 };

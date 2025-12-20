@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { TranslationBlock, DisplayMode, AVAILABLE_MODELS, ReadingSettings } from '../types';
 import { refineBlock } from '../services/geminiService';
-import { Edit2, Check, X, BookOpen, Heart, Bookmark, FileText, Sparkles, ArrowUp, List, ChevronLeft, ChevronRight, Upload, Heading, FileDown, Play, Loader2, Globe, Link as LinkIcon, Eye, EyeOff } from 'lucide-react';
+import { Edit2, Check, X, BookOpen, Heart, Bookmark, FileText, Sparkles, ArrowUp, List, ChevronLeft, ChevronRight, Upload, Heading, FileDown, Play, Loader2, Globe, Link as LinkIcon, Eye, EyeOff, Search } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { UI_STRINGS, LanguageCode } from '../services/i18n';
 import Tooltip from './Tooltip';
@@ -37,6 +37,7 @@ interface TranslationReaderProps {
   onContinue: () => void; 
   lang?: LanguageCode;
   readingSettings: ReadingSettings;
+  customApiKey?: string;
 }
 
 // --- BLOCK ITEM COMPONENT ---
@@ -93,7 +94,7 @@ const TranslationBlockItem = React.memo(({
 
   const cleanHeader = (text: string) => text.replace(/^[#\s]+/, '');
 
-  const HeaderContent = () => (
+  const HeaderContentTranslatedOnly = () => (
       <div id={`block-${block.id}`} className="mt-12 mb-8 text-center scroll-mt-36 group relative">
           <div className="absolute right-0 top-0 opacity-0 group-hover:opacity-100 transition-opacity">
               <Tooltip content={t.convertToText}>
@@ -105,32 +106,39 @@ const TranslationBlockItem = React.memo(({
           <h2 className="text-2xl md:text-3xl font-serif font-bold text-[#990000] dark:text-red-400 mb-2 cursor-pointer" onClick={() => onStartEdit(block.id, block.translated)}>
               {cleanHeader(block.translated || block.original)}
           </h2>
-          {isSideBySide && block.translated && (
-              <p className="text-sm text-gray-400 font-serif italic">{cleanHeader(block.original)}</p>
-          )}
       </div>
   );
 
+  // Special Handling for Headers
   if (block.type === 'header') {
-      return isEditing ? (
-        <div className="max-w-xl mx-auto mb-8 p-6 rounded-2xl border border-white/20 shadow-2xl bg-white/70 dark:bg-black/60 backdrop-blur-xl transition-all">
-             {/* Show Original in Header Edit too */}
-             <div className="mb-4 text-sm font-serif text-gray-500 dark:text-gray-400 border-l-2 border-gray-300 dark:border-gray-600 pl-3 italic select-text">
-                {block.original}
-             </div>
-             <input className="w-full bg-transparent border-b border-gray-300 dark:border-gray-700 font-serif text-2xl font-bold text-[#990000] outline-none mb-4" value={localEditText} onChange={(e) => setLocalEditText(e.target.value)} autoFocus />
-             <div className="flex gap-2 justify-end">
-                <button onClick={onCancelEdit} className="text-xs font-bold text-gray-500">{t.cancel}</button>
-                <button onClick={handleSave} className="text-xs font-bold text-blue-500">{t.save}</button>
-             </div>
-        </div>
-      ) : <HeaderContent />;
+      // 1. Edit Mode: Same for all
+      if (isEditing) {
+        return (
+            <div className="max-w-xl mx-auto mb-8 p-6 rounded-2xl border border-white/20 shadow-2xl bg-white/40 dark:bg-black/40 backdrop-blur-xl transition-all">
+                <div className="mb-4 text-sm font-serif text-gray-500 dark:text-gray-400 border-l-2 border-gray-300 dark:border-gray-600 pl-3 italic select-text">
+                    {block.original}
+                </div>
+                <input className="w-full bg-transparent border-b border-gray-300 dark:border-gray-700 font-serif text-2xl font-bold text-[#990000] outline-none mb-4" value={localEditText} onChange={(e) => setLocalEditText(e.target.value)} autoFocus />
+                <div className="flex gap-2 justify-end">
+                    <button onClick={onCancelEdit} className="text-xs font-bold text-gray-500">{t.cancel}</button>
+                    <button onClick={handleSave} className="text-xs font-bold text-blue-500">{t.save}</button>
+                </div>
+            </div>
+        );
+      }
+
+      // 2. Translated Only: Use Centered Banner
+      if (isTranslatedOnly) {
+          return <HeaderContentTranslatedOnly />;
+      }
+
+      // 3. Bilingual Modes: Fall through to main grid layout to ensure alignment
   }
 
   const dynamicStyle = {
       ...readingStyle,
       textAlign: 'justify' as const,
-      textIndent: '2em'
+      textIndent: block.type === 'header' ? '0' : '2em' // No indent for headers in grid
   };
 
   const Toolbar = () => (
@@ -171,7 +179,8 @@ const TranslationBlockItem = React.memo(({
                 <Edit2 className="w-3 h-3"/>
             </button>
         </Tooltip>
-        <Tooltip content={t.actionBookmark}>
+        {/* Fix: Shift set to -45 to ensure tooltip stays well within screen bounds from the right edge */}
+        <Tooltip content={t.actionBookmark} shift={-45}>
             <button onClick={(e) => { e.stopPropagation(); onSetBookmark(block.id); }} className={`p-1 rounded-full transition-colors ${isBookmarked ? 'text-[#990000] dark:text-red-400' : 'text-gray-600 dark:text-gray-300 hover:text-[#990000] hover:bg-white/50 dark:hover:bg-white/20'}`}>
                 <Bookmark className={`w-3 h-3 ${isBookmarked ? 'fill-current' : ''}`}/>
             </button>
@@ -200,15 +209,15 @@ const TranslationBlockItem = React.memo(({
   const ContentJsx = (
     <>
       {isEditing ? (
-        <div className="relative w-full p-6 rounded-2xl border border-white/20 shadow-2xl bg-white/70 dark:bg-black/60 backdrop-blur-xl transition-all">
+        <div className="relative w-full p-6 rounded-2xl border border-white/20 shadow-2xl bg-white/40 dark:bg-black/40 backdrop-blur-xl transition-all">
              {/* Auto-show Original in Edit Mode */}
              <div className="mb-4 text-sm font-serif text-gray-500 dark:text-gray-400 border-l-2 border-gray-300 dark:border-gray-600 pl-3 italic select-text">
                 {block.original}
              </div>
             <textarea className="w-full bg-transparent border-none outline-none font-serif text-lg md:text-xl text-gray-900 dark:text-gray-100 leading-loose resize-none focus:ring-0 p-0" style={{ minHeight: '150px' }} rows={Math.max(3, Math.ceil(block.translated.length / 50))} value={localEditText} onChange={(e) => setLocalEditText(e.target.value)} autoFocus />
             <div className="flex gap-2 justify-end mt-4">
-              <button onClick={onCancelEdit} className="px-3 py-1.5 rounded-lg text-sm font-bold text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"><X className="w-4 h-4 inline mr-1"/> {t.cancel}</button>
-              <button onClick={handleSave} className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold shadow-md shadow-blue-500/20 transition-all"><Check className="w-4 h-4 inline mr-1"/> {t.save}</button>
+              <button onClick={onCancelEdit} className="px-3 py-1.5 rounded-lg text-sm font-bold text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center gap-1"><X className="w-4 h-4"/> {t.cancel}</button>
+              <button onClick={handleSave} className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold shadow-md shadow-blue-500/20 transition-all flex items-center gap-1"><Check className="w-4 h-4"/> {t.save}</button>
             </div>
         </div>
       ) : (
@@ -223,18 +232,30 @@ const TranslationBlockItem = React.memo(({
                     {block.original}
                </div>
             )}
-            <ReactMarkdown components={{ p: ({node, ...props}) => <p {...props} className={isTranslatedOnly ? "inline" : "mb-0"} /> }}>{block.translated}</ReactMarkdown>
+            
+            {/* Header Handling in Bilingual Modes */}
+            {block.type === 'header' ? (
+                <h2 className="text-2xl font-bold text-[#990000] dark:text-red-400 font-serif mb-2 leading-tight">
+                    {cleanHeader(block.translated)}
+                </h2>
+            ) : (
+                <ReactMarkdown components={{ p: ({node, ...props}) => <p {...props} className={isTranslatedOnly ? "inline" : "mb-0"} /> }}>{block.translated}</ReactMarkdown>
+            )}
         </div>
       )}
       {(block.note || isEditingNote) && (
-        <div className={`mt-4 p-4 rounded-xl border text-sm transition-colors duration-300 ${isEditingNote ? 'bg-white dark:bg-gray-800 border-yellow-300 dark:border-yellow-600/50 shadow-lg' : 'bg-yellow-50 dark:bg-yellow-900/10 border-yellow-100 dark:border-yellow-900/30 text-gray-700 dark:text-gray-300'}`}>
+        // Fix: Removed 'border border-white/20' to eliminate the white box. Added stronger backdrop blur and specific background opacity for "frosted" feel.
+        <div className={`mt-4 p-4 rounded-xl shadow-2xl backdrop-blur-xl text-sm transition-colors duration-300 ${isEditingNote ? 'bg-white/60 dark:bg-black/60 ring-1 ring-yellow-400/50' : 'bg-yellow-50/50 dark:bg-yellow-900/10 border border-yellow-100/50 dark:border-yellow-900/30 text-gray-700 dark:text-gray-300'}`}>
             {isEditingNote ? (
                 <div className="flex flex-col gap-3">
-                    <textarea autoFocus className="w-full bg-transparent border-none focus:ring-0 p-0 text-gray-800 dark:text-gray-200 placeholder-gray-400 font-sans" placeholder={t.notePlaceholder} value={localNote} onChange={(e) => setLocalNote(e.target.value)} onBlur={handleNoteSave} rows={2} />
-                    <div className="flex justify-end"><button onMouseDown={(e) => { e.preventDefault(); handleNoteSave(); }} className="text-xs font-bold text-yellow-700 dark:text-yellow-400 hover:underline uppercase tracking-wider">{t.done}</button></div>
+                    <textarea autoFocus className="w-full bg-transparent border-none focus:ring-0 outline-none p-0 text-gray-800 dark:text-gray-100 placeholder-gray-500 font-sans resize-none" placeholder={t.notePlaceholder} value={localNote} onChange={(e) => setLocalNote(e.target.value)} onKeyDown={(e) => { if(e.key === 'Enter' && e.ctrlKey) handleNoteSave(); }} rows={3} />
+                    <div className="flex justify-end gap-2">
+                        <button onClick={() => onToggleNote(block.id)} className="px-3 py-1.5 rounded-lg text-sm font-bold text-gray-500 dark:text-gray-400 hover:bg-white/50 dark:hover:bg-white/10 transition-colors flex items-center gap-1"><X className="w-4 h-4"/> {t.cancel}</button>
+                        <button onClick={handleNoteSave} className="px-4 py-1.5 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg text-sm font-bold shadow-md shadow-yellow-500/20 transition-all flex items-center gap-1"><Check className="w-4 h-4"/> {t.save}</button>
+                    </div>
                 </div>
             ) : (
-                <div className="flex gap-3 items-start group/note cursor-pointer" onClick={() => onToggleNote(block.id)}><FileText className="w-4 h-4 text-yellow-500 dark:text-yellow-400 shrink-0 mt-1" /><p className="flex-1 italic font-sans">{block.note}</p></div>
+                <div className="flex gap-3 items-start group/note cursor-pointer" onClick={() => onToggleNote(block.id)}><FileText className="w-4 h-4 text-yellow-500 dark:text-yellow-400 shrink-0 mt-1" /><p className="flex-1 italic font-sans text-gray-800 dark:text-gray-200">{block.note}</p></div>
             )}
         </div>
       )}
@@ -247,7 +268,7 @@ const TranslationBlockItem = React.memo(({
         id={`block-${block.id}`} 
         data-block-id={block.id} 
         style={{ marginBottom: `${blockSpacing}px` }}
-        className={`translation-block-item group transition-all rounded-lg scroll-mt-32 ${isBookmarked ? 'border-l-4 border-[#990000] pl-4 -ml-5 bg-red-50/50 dark:bg-red-900/10 py-2' : ''}`}
+        className={`translation-block-item group transition-all rounded-lg scroll-mt-32 ${isBookmarked ? 'border-l-4 border-[#990000] pl-4 -ml-5 bg-red-50/20 dark:bg-red-900/10 py-2' : ''}`}
       >
         {isBookmarked && <div className="absolute -left-10 top-1 text-[#990000]"><Bookmark className="w-5 h-5 fill-current" /></div>}
         <Toolbar />
@@ -257,13 +278,13 @@ const TranslationBlockItem = React.memo(({
     );
   }
 
+  // Bilingual Grid Layout (Side-by-Side & Interlinear)
   return (
     <div 
         id={`block-${block.id}`} 
         data-block-id={block.id} 
         style={{ marginBottom: `${blockSpacing}px` }}
-        // Reduced p-6 to p-4 for tighter blocks
-        className={`translation-block-item group transition-colors p-4 scroll-mt-32 ${isTranslatedOnly ? 'rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm bg-white dark:bg-[#1e1e1e]' : ''} ${isEditing ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''} ${isBookmarked ? 'ring-2 ring-red-100 dark:ring-red-900/30 bg-red-50/20' : ''}`}
+        className={`translation-block-item group transition-colors p-4 scroll-mt-32 ${block.type === 'header' ? 'mt-8 mb-4 border-b border-dashed border-gray-200 dark:border-gray-800 pb-4' : ''} ${isTranslatedOnly ? 'rounded-2xl border border-gray-200/50 dark:border-gray-700/50 shadow-sm bg-white/40 dark:bg-black/20 backdrop-blur-sm' : ''} ${isEditing ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''} ${isBookmarked ? 'ring-2 ring-red-100 dark:ring-red-900/30 bg-red-50/20' : ''}`}
     >
       {isBookmarked && <div className="absolute -left-[1px] top-6 w-1 h-8 bg-[#990000] rounded-r"></div>}
       <Toolbar />
@@ -277,7 +298,13 @@ const TranslationBlockItem = React.memo(({
         {(showOriginal || isInterlinear) && (
           // Reduced margin-bottom (mb-3 -> mb-1) and internal padding for original text
           <div className={`${isSideBySide ? 'bg-gray-50/50 dark:bg-gray-900/50 p-5 rounded-xl border border-gray-100 dark:border-gray-800 text-base leading-relaxed text-gray-600 dark:text-gray-400' : 'text-gray-500 dark:text-gray-400 text-sm mb-1 border-l-[1.5px] border-gray-200 dark:border-gray-700 pl-3'} font-serif text-justify select-text`}>
-             <p lang="en">{block.original}</p>
+             {block.type === 'header' ? (
+                 <h3 className="text-xl font-bold text-gray-500 dark:text-gray-400 font-serif leading-tight">
+                     {cleanHeader(block.original)}
+                 </h3>
+             ) : (
+                 <p lang="en">{block.original}</p>
+             )}
           </div>
         )}
         <div className="relative notranslate">
@@ -312,7 +339,7 @@ const TranslationReader: React.FC<TranslationReaderProps> = ({
   blocks, displayMode, fandom, targetLang, model, refinePromptTemplate, bookmarkBlockId,
   title, author, url, percentComplete, isProcessing,
   onUpdateBlock, onLoadingStateChange, onToggleFavorite, onSetBookmark, onUpdateNote, onToggleBlockType, onOpenSettings, onUpdateSource, onUpdateFromUrl, isUpdatingFromUrl, onExport, onContinue, lang = 'en',
-  readingSettings 
+  readingSettings, customApiKey 
 }) => {
   const t = UI_STRINGS[lang];
   const { theme } = useTheme();
@@ -327,6 +354,7 @@ const TranslationReader: React.FC<TranslationReaderProps> = ({
 
   // Chapter Navigation State
   const [showToc, setShowToc] = useState(false);
+  const [tocSearchTerm, setTocSearchTerm] = useState('');
   const [currentChapterIdx, setCurrentChapterIdx] = useState(0);
   
   const containerRef = useRef<HTMLDivElement>(null);
@@ -341,27 +369,6 @@ const TranslationReader: React.FC<TranslationReaderProps> = ({
   }), [readingSettings]);
 
   const isCustomTheme = readingSettings.paperTheme === 'custom';
-
-  // Paper Theme Background Logic - Enhanced
-  // FORCE DARK MODE OVERRIDE: If system is dark, force default dark background for colored themes
-  const paperThemeClasses = useMemo(() => {
-     if (isCustomTheme) return 'text-gray-900 dark:text-gray-100 shadow-2xl'; // More shadow for lift
-
-     // If Dark Mode active, override light themes (Sepia, Green, Gray) to default dark or specific dark theme
-     if (theme === 'dark') {
-         if (readingSettings.paperTheme === 'midnight') return 'bg-[#1e293b] text-[#e2e8f0]';
-         // For any other "light" theme (sepia, green, gray, default), force default dark mode
-         return 'bg-[#1a1a1a] text-gray-200';
-     }
-
-     switch(readingSettings.paperTheme) {
-         case 'sepia': return 'bg-[#fdfbf7] text-[#5f4b32]';
-         case 'green': return 'bg-[#f0fdf4] text-[#14532d]';
-         case 'gray': return 'bg-[#f3f4f6] text-[#1f2937]';
-         case 'midnight': return 'bg-[#1e293b] text-[#e2e8f0]';
-         default: return 'bg-white text-gray-900';
-     }
-  }, [readingSettings.paperTheme, theme, isCustomTheme]);
 
   // Dynamic Background Style for Custom Image
   const containerStyle = useMemo(() => {
@@ -397,6 +404,13 @@ const TranslationReader: React.FC<TranslationReaderProps> = ({
      if (chs.length === 0 && blocks.length > 0) return [{index: 0, title: t.startChapter || "Start", startBlockId: blocks[0].id}];
      return chs;
   }, [blocks, t.startChapter, t.chapterPrefix]);
+
+  // Filtered Chapters for TOC Search
+  const filteredChapters = useMemo(() => {
+      if (!tocSearchTerm) return chapters;
+      const lower = tocSearchTerm.toLowerCase();
+      return chapters.filter(ch => ch.title.toLowerCase().includes(lower) || ch.index.toString().includes(lower));
+  }, [chapters, tocSearchTerm]);
 
   const displayedBlocks = useMemo(() => {
       return blocks.filter(b => (b.chapterIndex || 0) === currentChapterIdx);
@@ -438,12 +452,12 @@ const TranslationReader: React.FC<TranslationReaderProps> = ({
       setRefiningBlockId(null);
       try {
           const template = refinePromptTemplate || t.defaultRefineTemplate || "Refine this translation: {{original}} -> {{translated}} using instruction: {{instruction}}";
-          const refined = await refineBlock(block.original, block.translated, targetLang, fandom, modelToUse, instruction, template);
+          const refined = await refineBlock(block.original, block.translated, targetLang, fandom, modelToUse, instruction, template, customApiKey);
           onUpdateBlock(id, refined);
           showToast(t.toastRefineSuccess, "success");
       } catch (e) { showToast(t.toastRefineFail, "error"); }
       finally { onLoadingStateChange(id, false); }
-  }, [blocks, refinePromptTemplate, targetLang, fandom, onLoadingStateChange, onUpdateBlock, t.defaultRefineTemplate, t.toastRefineSuccess, t.toastRefineFail, showToast]);
+  }, [blocks, refinePromptTemplate, targetLang, fandom, onLoadingStateChange, onUpdateBlock, t.defaultRefineTemplate, t.toastRefineSuccess, t.toastRefineFail, showToast, customApiKey]);
 
   function isTranslatedOnly(mode: DisplayMode) { return mode === DisplayMode.TRANSLATED_ONLY; }
 
@@ -456,37 +470,9 @@ const TranslationReader: React.FC<TranslationReaderProps> = ({
   return (
     <div 
         ref={containerRef} 
-        className={`mx-auto rounded-3xl transition-all duration-300 relative overflow-hidden ${paperThemeClasses} ${!isTranslatedOnly(displayMode) ? 'max-w-7xl border border-gray-100 dark:border-gray-800' : 'border-none shadow-none'}`} 
+        className={`mx-auto rounded-3xl transition-all duration-300 relative overflow-hidden bg-transparent ${!isTranslatedOnly(displayMode) ? 'max-w-7xl border border-gray-100 dark:border-gray-800' : 'border-none shadow-none'}`} 
         style={containerStyle}
     >
-      {/* 
-        Custom Theme Layering for Backdrop Blur Support:
-        1. Background Image Layer (z-0)
-        2. Overlay Color/Blur Layer (z-1)
-        3. Content Layer (z-10)
-      */}
-      {isCustomTheme && readingSettings.customBgImage && (
-          <div 
-            className="fixed inset-0 z-0 pointer-events-none"
-            style={{ 
-                backgroundImage: `url(${readingSettings.customBgImage})`,
-                backgroundSize: 'cover',
-                backgroundPosition: 'center',
-            }}
-          ></div>
-      )}
-
-      {isCustomTheme && (
-          <div 
-            className="fixed inset-0 z-[1] pointer-events-none transition-all duration-300"
-            style={{ 
-                backgroundColor: theme === 'dark' ? `rgba(0,0,0,${readingSettings.overlayOpacity ?? 0.9})` : `rgba(255,255,255,${readingSettings.overlayOpacity ?? 0.9})`,
-                backdropFilter: `blur(${readingSettings.overlayBlur ?? 0}px)`,
-                WebkitBackdropFilter: `blur(${readingSettings.overlayBlur ?? 0}px)`,
-            }}
-          ></div>
-      )}
-
       {/* Content Wrapper - Must be relative z-10 to sit above overlay */}
       <div className="relative z-10">
       
@@ -559,7 +545,7 @@ const TranslationReader: React.FC<TranslationReaderProps> = ({
       )}
 
       {/* --- HEADER SECTION --- */}
-      <div className={`${isTranslatedOnly(displayMode) ? (isCustomTheme ? 'bg-transparent' : 'bg-transparent backdrop-blur-sm') : 'bg-white dark:bg-[#252525]'} ${isCustomTheme ? 'border-none' : 'border-b border-gray-100 dark:border-gray-800'} p-6 md:p-8 rounded-t-3xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-sm transition-colors`}>
+      <div className={`bg-transparent ${isCustomTheme ? 'border-none' : 'border-b border-gray-100 dark:border-gray-800'} p-6 md:p-8 rounded-t-3xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-sm transition-colors`}>
           <div>
               <h1 className="font-serif font-black text-2xl md:text-3xl mb-2 line-clamp-1">{title}</h1>
               <div className="flex items-center gap-3 text-sm opacity-60 font-medium">
@@ -594,9 +580,9 @@ const TranslationReader: React.FC<TranslationReaderProps> = ({
       </div>
 
       {/* Floating Dock */}
-      <div className="fixed bottom-8 right-8 z-50 flex flex-col items-center gap-3 animate-in fade-in slide-in-from-bottom-6">
+      <div className="fixed bottom-6 right-4 md:bottom-8 md:right-8 z-50 flex flex-col items-center gap-2 md:gap-3 animate-in fade-in slide-in-from-bottom-6">
         <Tooltip content={t.scrollTop} position="left">
-            <button onClick={scrollToTop} className="p-3 bg-white/80 dark:bg-gray-800/80 backdrop-blur border border-gray-200 dark:border-gray-700 rounded-full shadow-lg text-gray-500 hover:text-[#990000] dark:hover:text-white transition-all hover:-translate-y-1">
+            <button onClick={scrollToTop} className="p-2.5 md:p-3 bg-white/80 dark:bg-gray-800/80 backdrop-blur border border-gray-200 dark:border-gray-700 rounded-full shadow-lg text-gray-500 hover:text-[#990000] dark:hover:text-white transition-all hover:-translate-y-1">
                 <ArrowUp className="w-5 h-5" />
             </button>
         </Tooltip>
@@ -609,21 +595,21 @@ const TranslationReader: React.FC<TranslationReaderProps> = ({
                         setCurrentChapterIdx(b.chapterIndex);
                         setTimeout(() => document.getElementById(`block-${bookmarkBlockId}`)?.scrollIntoView({behavior:'smooth', block:'center'}), 100);
                     }
-                }} className="p-3 bg-white/80 dark:bg-gray-800/80 backdrop-blur border border-gray-200 dark:border-gray-700 rounded-full shadow-lg text-[#990000] dark:text-red-400 hover:scale-110 transition-all">
+                }} className="p-2.5 md:p-3 bg-white/80 dark:bg-gray-800/80 backdrop-blur border border-gray-200 dark:border-gray-700 rounded-full shadow-lg text-[#990000] dark:text-red-400 hover:scale-110 transition-all">
                     <Bookmark className="w-5 h-5 fill-current" />
                 </button>
             </Tooltip>
         )}
 
         <Tooltip content={t.updateSourceDesc} position="left">
-            <button onClick={handleUpdateClick} className="p-3 bg-white/80 dark:bg-gray-800/80 backdrop-blur border border-gray-200 dark:border-gray-700 rounded-full shadow-lg text-blue-500 dark:text-blue-400 hover:text-blue-700 dark:hover:text-white transition-all hover:scale-105">
+            <button onClick={handleUpdateClick} className="p-2.5 md:p-3 bg-white/80 dark:bg-gray-800/80 backdrop-blur border border-gray-200 dark:border-gray-700 rounded-full shadow-lg text-blue-500 dark:text-blue-400 hover:text-blue-700 dark:hover:text-white transition-all hover:scale-105">
                 {isUpdatingFromUrl ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />}
             </button>
         </Tooltip>
 
         {chapters.length > 0 && (
             <Tooltip content={t.toc} position="left">
-                <button onClick={() => setShowToc(!showToc)} className={`p-3 backdrop-blur border rounded-full shadow-lg transition-all ${showToc ? 'bg-[#990000] border-[#990000] text-white' : 'bg-white/80 dark:bg-gray-800/80 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:text-[#990000]'}`}>
+                <button onClick={() => setShowToc(!showToc)} className={`p-2.5 md:p-3 backdrop-blur border rounded-full shadow-lg transition-all ${showToc ? 'bg-[#990000] border-[#990000] text-white' : 'bg-white/80 dark:bg-gray-800/80 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:text-[#990000]'}`}>
                     <List className="w-5 h-5" />
                 </button>
             </Tooltip>
@@ -633,12 +619,26 @@ const TranslationReader: React.FC<TranslationReaderProps> = ({
       {/* Chapter TOC Sidebar */}
       {showToc && (
         <div className="fixed top-20 right-4 sm:right-8 w-64 max-h-[70vh] bg-white/95 dark:bg-[#1a1a1a]/95 backdrop-blur-md shadow-2xl rounded-2xl border border-gray-200 dark:border-gray-700 z-50 overflow-hidden flex flex-col animate-in slide-in-from-right-4 fade-in duration-200">
-           <div className="p-4 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50/50 dark:bg-gray-900/50">
-             <h3 className="font-bold text-gray-900 dark:text-gray-100 text-sm flex items-center gap-2"><List className="w-4 h-4"/> {t.toc}</h3>
-             <button onClick={() => setShowToc(false)} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4"/></button>
+           <div className="p-4 border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/50 space-y-3">
+             <div className="flex justify-between items-center">
+                <h3 className="font-bold text-gray-900 dark:text-gray-100 text-sm flex items-center gap-2"><List className="w-4 h-4"/> {t.toc}</h3>
+                <button onClick={() => setShowToc(false)} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4"/></button>
+             </div>
+             {/* TOC Search Input */}
+             <div className="relative">
+                 <Search className="absolute left-2 top-2 w-3.5 h-3.5 text-gray-400" />
+                 <input 
+                    type="text" 
+                    placeholder={t.searchLibrary} 
+                    value={tocSearchTerm}
+                    onChange={(e) => setTocSearchTerm(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-xs outline-none focus:ring-2 focus:ring-[#990000]/20"
+                 />
+             </div>
            </div>
            <div className="flex-1 overflow-y-auto p-2 custom-scrollbar space-y-1">
-             {chapters.map((ch) => (
+             {filteredChapters.length === 0 && <p className="text-center text-xs text-gray-400 py-4">{t.noContent}</p>}
+             {filteredChapters.map((ch) => (
                <button 
                   key={ch.index} 
                   onClick={() => { setCurrentChapterIdx(ch.index); setShowToc(false); scrollToTop(); }} 
@@ -652,7 +652,7 @@ const TranslationReader: React.FC<TranslationReaderProps> = ({
       )}
 
       {/* Blocks List - Custom BG logic needs opacity layer for text readability if user wants, but simple is best for now */}
-      <div className={`px-6 py-10 space-y-6 shadow-sm dark:shadow-none min-h-screen transition-colors duration-300 pb-32 ${isCustomTheme ? '' : '' /* No bg here, handled by wrapper */}`}>
+      <div className={`px-6 py-10 space-y-6 shadow-sm dark:shadow-none min-h-screen transition-colors duration-300 pb-96 ${isCustomTheme ? '' : '' /* No bg here, handled by wrapper */}`}>
          {displayedBlocks.map(block => (
            <TranslationBlockItem 
              key={block.id}

@@ -1,6 +1,6 @@
 
 import React, { useState, useRef } from 'react';
-import { X, Sliders, Sparkles, Languages, Save, FileEdit, Loader2, BookOpen, HardDrive, Type, Upload, AlertCircle } from 'lucide-react';
+import { X, Sliders, Sparkles, Languages, Save, FileEdit, Loader2, BookOpen, HardDrive, Type, Upload, AlertCircle, Key, FileInput } from 'lucide-react';
 import { AVAILABLE_MODELS, SUPPORTED_LANGUAGES, ReadingSettings, BackupSettings } from '../types';
 import { UI_STRINGS, LanguageCode } from '../services/i18n';
 import { generateFandomGlossary } from '../services/geminiService';
@@ -32,18 +32,21 @@ interface SettingsProps {
     setIncludeTags: (v: boolean) => void;
     tagInstruction: string;
     setTagInstruction: (v: string) => void;
+    customApiKey: string;
+    setCustomApiKey: (v: string) => void;
   };
   readingSettings: ReadingSettings;
   setReadingSettings: (v: ReadingSettings) => void;
   backupSettings: BackupSettings;
   setBackupSettings: (v: BackupSettings) => void;
   onBackupNow: () => void;
+  onImportSettings: (e: React.ChangeEvent<HTMLInputElement>) => void; // New Prop
   onRestorePrompt: () => void;
 }
 
 const ProjectSettingsModal: React.FC<SettingsProps> = ({ 
   uiLang, isOpen, onClose, onSave, settings, onRestorePrompt, fandom,
-  readingSettings, setReadingSettings, backupSettings, setBackupSettings, onBackupNow
+  readingSettings, setReadingSettings, backupSettings, setBackupSettings, onBackupNow, onImportSettings
 }) => {
   const t = UI_STRINGS[uiLang];
   const { theme } = useTheme(); 
@@ -52,6 +55,7 @@ const ProjectSettingsModal: React.FC<SettingsProps> = ({
   const [isGeneratingGlossary, setIsGeneratingGlossary] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const bgFileInputRef = useRef<HTMLInputElement>(null);
+  const importSettingsRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
 
@@ -62,7 +66,7 @@ const ProjectSettingsModal: React.FC<SettingsProps> = ({
     }
     setIsGeneratingGlossary(true);
     try {
-        const result = await generateFandomGlossary(fandom, settings.targetLang, settings.selectedModel);
+        const result = await generateFandomGlossary(fandom, settings.targetLang, settings.selectedModel, settings.customApiKey);
         if (result) {
             const newGlossary = settings.glossary ? settings.glossary + '\n\n' + result : result;
             settings.setGlossary(newGlossary);
@@ -318,7 +322,6 @@ const ProjectSettingsModal: React.FC<SettingsProps> = ({
               </div>
           )}
 
-          {/* ... (Existing TRANSLATION TAB & DATA TAB code remains unchanged) ... */}
           {/* --- TRANSLATION TAB --- */}
           {activeTab === 'translation' && (
              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-in fade-in slide-in-from-right-4 duration-300">
@@ -366,6 +369,19 @@ const ProjectSettingsModal: React.FC<SettingsProps> = ({
 
                 {/* Right Column: Prompts */}
                 <div className="lg:col-span-8 space-y-6">
+                    {/* Custom API Key Input */}
+                    <div className="space-y-2">
+                        <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest flex items-center gap-2"><Key className="w-3 h-3" /> {t.customApiKey}</label>
+                        <input 
+                            type="password" 
+                            value={settings.customApiKey} 
+                            onChange={(e) => settings.setCustomApiKey(e.target.value)} 
+                            placeholder={t.customApiKeyPlaceholder}
+                            className="w-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl py-2 px-3 text-sm font-bold text-gray-700 dark:text-gray-200 outline-none focus:ring-2 focus:ring-[#990000]/20 placeholder-gray-400 dark:placeholder-gray-600"
+                        />
+                        <p className="text-[10px] text-gray-400 dark:text-gray-500">{t.customApiKeyDesc}</p>
+                    </div>
+
                     <div className="space-y-2">
                         <div className="flex justify-between items-center">
                             <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest">{t.systemPrompt}</label>
@@ -422,9 +438,31 @@ const ProjectSettingsModal: React.FC<SettingsProps> = ({
                           </div>
                       )}
                   </div>
-                  <div className="flex flex-col items-center gap-4">
-                      <button onClick={onBackupNow} className="flex items-center gap-2 px-6 py-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-xl font-bold shadow-lg hover:opacity-90 transition-all active:scale-95"><Save className="w-4 h-4" /> {t.backupNow}</button>
-                      <p className="text-xs text-gray-400 text-center max-w-sm">{t.backupNowDesc}</p>
+                  
+                  {/* Backup & Import Actions */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <button onClick={onBackupNow} className="flex items-center justify-center gap-2 px-6 py-4 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-xl font-bold shadow-lg hover:opacity-90 transition-all active:scale-95 group">
+                          <Save className="w-5 h-5 group-hover:scale-110 transition-transform" /> 
+                          <span className="flex flex-col items-start leading-none gap-1">
+                              <span className="text-sm">{t.backupNow}</span>
+                              <span className="text-[10px] font-normal opacity-70">JSON Export</span>
+                          </span>
+                      </button>
+                      
+                      <button onClick={() => importSettingsRef.current?.click()} className="flex items-center justify-center gap-2 px-6 py-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 rounded-xl font-bold shadow-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-all active:scale-95 group">
+                          <Upload className="w-5 h-5 text-blue-600 dark:text-blue-400 group-hover:scale-110 transition-transform" />
+                          <span className="flex flex-col items-start leading-none gap-1">
+                              <span className="text-sm">{t.importHistory}</span>
+                              <span className="text-[10px] font-normal opacity-70 text-gray-400">Restore Config</span>
+                          </span>
+                      </button>
+                      <input 
+                        type="file" 
+                        ref={importSettingsRef} 
+                        onChange={onImportSettings} 
+                        accept=".json" 
+                        className="hidden" 
+                      />
                   </div>
               </div>
           )}
