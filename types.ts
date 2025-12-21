@@ -80,6 +80,7 @@ export const AVAILABLE_MODELS = [
   { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash (Recommended)' },
   { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro (Best Quality)' },
   { id: 'gemini-2.0-flash-exp', name: 'Gemini 2.0 Flash' },
+  { id: 'google-translate', name: 'Google Translate (Free/Web)' }, // Updated
 ];
 
 export const DEFAULT_PROMPT = `You are a professional literary translator specializing in Fanfiction.

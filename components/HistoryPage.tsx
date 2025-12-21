@@ -4,7 +4,7 @@ import { TranslationProject, ReadingSettings } from '../types';
 import { UI_STRINGS, LanguageCode } from '../services/i18n';
 import { 
   BookOpen, Clock, Search, Filter, Trash2, Upload, 
-  ArrowRight, Archive, CheckCircle2, Circle, X, PlayCircle, Plus, FileUp, AlertTriangle, Globe, Link as LinkIcon
+  ArrowRight, Archive, CheckCircle2, Circle, X, PlayCircle, Plus, FileUp, AlertTriangle, Globe, Link as LinkIcon, ExternalLink
 } from 'lucide-react';
 import Tooltip from './Tooltip';
 import { useTheme } from './ThemeContext';
@@ -47,6 +47,7 @@ const HistoryPage: React.FC<HistoryPageProps> = ({
 
   // State for Custom Delete Modal
   const [projectToDelete, setProjectToDelete] = useState<string | null>(null);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
   
   // State for Update Modal
   const [updateModalProject, setUpdateModalProject] = useState<TranslationProject | null>(null);
@@ -115,6 +116,11 @@ const HistoryPage: React.FC<HistoryPageProps> = ({
           onDelete(projectToDelete);
           setProjectToDelete(null);
       }
+  };
+
+  const confirmClearAll = () => {
+      onClear();
+      setShowClearConfirm(false);
   };
 
   const handleUpdateClick = (e: React.MouseEvent, project: TranslationProject) => {
@@ -239,7 +245,7 @@ const HistoryPage: React.FC<HistoryPageProps> = ({
                    </select>
 
                    {history.length > 0 && (
-                        <button onClick={onClear} className="px-4 py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 rounded-lg font-medium transition-colors whitespace-nowrap">
+                        <button onClick={() => setShowClearConfirm(true)} className="px-4 py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 rounded-lg font-medium transition-colors whitespace-nowrap">
                             {t.clearHistory}
                         </button>
                    )}
@@ -292,6 +298,20 @@ const HistoryPage: React.FC<HistoryPageProps> = ({
                                 </span>
                                 
                                 <div className="flex gap-2">
+                                    {project.metadata.url && (
+                                        <Tooltip content={t.openSource}>
+                                            <a 
+                                                href={project.metadata.url} 
+                                                target="_blank" 
+                                                rel="noopener noreferrer"
+                                                onClick={(e) => e.stopPropagation()}
+                                                className="p-2 rounded-lg text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                                            >
+                                                <ExternalLink className="w-4 h-4" />
+                                            </a>
+                                        </Tooltip>
+                                    )}
+
                                     <Tooltip content={t.updateSourceDesc}>
                                         <button 
                                             onClick={(e) => handleUpdateClick(e, project)}
@@ -363,6 +383,39 @@ const HistoryPage: React.FC<HistoryPageProps> = ({
                          </button>
                          <button 
                              onClick={confirmDelete}
+                             className="flex-1 px-4 py-2 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 shadow-lg shadow-red-500/30 transition-colors"
+                         >
+                             {t.delete}
+                         </button>
+                     </div>
+                 </div>
+             </div>
+         </div>
+       )}
+
+       {/* Custom Clear All Confirmation Modal */}
+       {showClearConfirm && (
+         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+             <div className="bg-white dark:bg-[#1e1e1e] rounded-2xl p-6 max-w-sm w-full shadow-2xl border border-gray-200 dark:border-gray-800 animate-in zoom-in-95 duration-200">
+                 <div className="flex flex-col items-center text-center space-y-4">
+                     <div className="w-12 h-12 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center text-red-600 dark:text-red-500">
+                         <AlertTriangle className="w-6 h-6" />
+                     </div>
+                     <div className="space-y-2">
+                        <h3 className="text-lg font-bold text-gray-900 dark:text-white">{t.clearLibraryTitle}</h3>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                            {t.confirmClear}
+                        </p>
+                     </div>
+                     <div className="flex gap-3 w-full pt-2">
+                         <button 
+                             onClick={() => setShowClearConfirm(false)}
+                             className="flex-1 px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 font-bold rounded-xl hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                         >
+                             {t.cancel}
+                         </button>
+                         <button 
+                             onClick={confirmClearAll}
                              className="flex-1 px-4 py-2 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 shadow-lg shadow-red-500/30 transition-colors"
                          >
                              {t.delete}

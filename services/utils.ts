@@ -6,37 +6,28 @@ export const generateId = (): string => {
 };
 
 export const splitTextIntoBlocks = (text: string): TranslationBlock[] => {
-  // Normalize line endings
   const normalized = text.replace(/\r\n/g, '\n');
   const rawBlocks = normalized.split(/\n\s*\n/);
-  
   return rawBlocks
     .map((chunk) => chunk.trim())
     .filter((chunk) => chunk.length > 0)
     .map((chunk) => {
-      // Explicit Markdown header support for Text/MD imports
       const isMarkdownHeader = /^#+\s/.test(chunk);
-      
       return {
         id: generateId(),
         original: chunk,
         translated: '',
         isEdited: false,
         isLoading: false,
-        type: isMarkdownHeader ? 'header' : 'text', // Preserve Markdown structure
+        type: isMarkdownHeader ? 'header' : 'text',
         chapterIndex: 0
       };
     });
 };
 
-/**
- * Recalculates chapter indices for the entire project based on 'header' block types.
- * Should be called whenever a block type is toggled or rescanned.
- */
 export const recalculateChapterIndices = (blocks: TranslationBlock[]): TranslationBlock[] => {
     let currentChapterIndex = 0;
     return blocks.map((b, index) => {
-        // If it's a header, and NOT the very first block (title), increment index
         if (b.type === 'header' && index > 0) {
             currentChapterIndex++;
         }
@@ -47,12 +38,10 @@ export const recalculateChapterIndices = (blocks: TranslationBlock[]): Translati
 export const sanitizeProjectData = (project: TranslationProject): TranslationProject => {
   const cleanBlocks = project.blocks.map(b => ({
       ...b,
-      // Ensure defaults if missing from old versions
       type: b.type || 'text',
       chapterIndex: b.chapterIndex ?? 0,
       note: b.note || '',
       isFavorite: b.isFavorite || false,
-      // Ensure strings aren't null/undefined
       original: b.original || '',
       translated: b.translated || ''
   }));
@@ -65,15 +54,9 @@ export const sanitizeProjectData = (project: TranslationProject): TranslationPro
       metadata: {
           ...project.metadata,
           tags: project.metadata.tags || [],
-          url: project.metadata.url || '' // Ensure URL field exists
+          url: project.metadata.url || ''
       }
   };
-};
-
-// --- Similarity and Merging Utils ---
-
-const normalizeForComparison = (text: string) => {
-    return text.trim().toLowerCase().replace(/\s+/g, ' ');
 };
 
 export const calculateSimilarity = (oldBlocks: TranslationBlock[], newBlocks: TranslationBlock[]): number => {
@@ -81,6 +64,8 @@ export const calculateSimilarity = (oldBlocks: TranslationBlock[], newBlocks: Tr
     const oldTextBlocks = oldBlocks.filter(b => b.type === 'text');
     const newTextBlocks = newBlocks.filter(b => b.type === 'text');
     if (oldTextBlocks.length === 0) return 0;
+
+    const normalizeForComparison = (text: string) => text.trim().toLowerCase().replace(/\s+/g, ' ');
 
     const oldSet = new Set(oldTextBlocks.map(b => normalizeForComparison(b.original)));
     let preservedCount = 0;
@@ -99,6 +84,7 @@ export const mergeProjectBlocks = (
     oldBlocks: TranslationBlock[], 
     newBlocks: TranslationBlock[]
 ): TranslationBlock[] => {
+    const normalizeForComparison = (text: string) => text.trim().toLowerCase().replace(/\s+/g, ' ');
     const historyMap = new Map<string, TranslationBlock>();
     
     oldBlocks.forEach(b => {
@@ -131,276 +117,232 @@ const cleanText = (text: string | null | undefined): string => {
 };
 
 const parseHTML = (htmlString: string) => {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(htmlString, 'text/html');
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(htmlString, 'text/html');
 
-  // --- Metadata Extraction ---
-  const title = cleanText(doc.querySelector('.meta h1')?.textContent) || 
-                cleanText(doc.querySelector('h1')?.textContent) || 
-                cleanText(doc.querySelector('#workskin h2.heading')?.textContent) || 
-                doc.title || "Untitled HTML";
-  
-  const author = cleanText(doc.querySelector('.meta .byline a[rel="author"]')?.textContent) || 
-                 cleanText(doc.querySelector('a[rel="author"]')?.textContent) || 
-                 cleanText(doc.querySelector('.byline')?.textContent) || "Unknown Author";
-  
-  // Extract URL
-  let url = "";
-  const canonicalLink = doc.querySelector('link[rel="canonical"]');
-  if (canonicalLink) {
-      url = canonicalLink.getAttribute('href') || "";
-  } else {
-      const titleLink = doc.querySelector('h1 a');
-      if (titleLink) {
-          const href = titleLink.getAttribute('href');
-          if (href && href.startsWith('http')) url = href;
-          else if (href) url = `https://archiveofourown.org${href}`;
-      }
-  }
+    // 1. Parse Metadata
+    const title = cleanText(doc.querySelector('.meta h1')?.textContent) || cleanText(doc.querySelector('h1')?.textContent) || doc.title || "Untitled HTML";
+    
+    // Robust author extraction (handles links and plain text for anons)
+    const authorEl = doc.querySelector('.meta .byline');
+    let author = "Unknown Author";
+    if (authorEl) {
+        const link = authorEl.querySelector('a[rel="author"]');
+        author = link ? cleanText(link.textContent) : cleanText(authorEl.textContent?.replace(/^by\s+/i, ''));
+    }
+    
+    let url = "";
+    // Priority 1: Canonical Link
+    const canonical = doc.querySelector('link[rel="canonical"]');
+    if (canonical) url = canonical.getAttribute('href') || "";
+    
+    // Priority 2: Preface/Message Link (Common in AO3 Downloads)
+    if (!url) {
+        // Look for links specifically containing "works/" but NOT "users/" or "tags/"
+        const workLinks = Array.from(doc.querySelectorAll('a[href*="archiveofourown.org/works/"]'));
+        // Find the one that matches the pattern ID (works/12345)
+        const validLink = workLinks.find(a => /\/works\/\d+$/.test(a.getAttribute('href') || ""));
+        if (validLink) {
+            url = validLink.getAttribute('href') || "";
+        } else if (workLinks.length > 0) {
+             // Fallback to first work link if strict regex fails
+             url = workLinks[0].getAttribute('href') || "";
+        }
+    }
 
-  let fandom = "Unknown Fandom";
-  const tags: string[] = [];
+    let fandom = "Unknown Fandom";
+    const tags: string[] = [];
+    const metaDl = doc.querySelector('dl.tags');
+    if (metaDl) {
+        let currentLabel = "";
+        Array.from(metaDl.children).forEach(child => {
+            if (child.tagName === 'DT') {
+                currentLabel = cleanText(child.textContent).toLowerCase();
+            } else if (child.tagName === 'DD') {
+                const vals = Array.from(child.querySelectorAll('a')).map(a => cleanText(a.textContent));
+                if (vals.length === 0) vals.push(cleanText(child.textContent));
+                
+                if (currentLabel.includes('fandom')) {
+                    fandom = vals.join(', ');
+                } else if (['rating','archive','category','relationship','character','tags'].some(k => currentLabel.includes(k))) {
+                    tags.push(...vals);
+                }
+            }
+        });
+    }
 
-  const metaDl = doc.querySelector('dl.tags');
-  if (metaDl) {
-      let currentLabel = "";
-      const children = Array.from(metaDl.children);
-      for (const child of children) {
-          if (child.tagName === 'DT') {
-              currentLabel = cleanText(child.textContent).toLowerCase().replace(':', '');
-          } else if (child.tagName === 'DD') {
-              const values = Array.from(child.querySelectorAll('a')).map(a => cleanText(a.textContent));
-              if (values.length === 0) { const text = cleanText(child.textContent); if (text) values.push(text); }
+    // 2. Parse Content Blocks
+    const blocks: TranslationBlock[] = [];
+    const chaptersNode = doc.getElementById('chapters');
+    
+    let chapterNodes: Element[] = [];
+    
+    if (chaptersNode) {
+        // AO3 HTML downloads usually have <div id="chapters" class="userstuff"> which contains the text directly
+        // OR it contains child divs with class "userstuff" or "chapter"
+        const children = Array.from(chaptersNode.children);
+        const subChapters = children.filter(el => el.classList.contains('userstuff') || el.classList.contains('chapter'));
+        
+        if (subChapters.length > 0) {
+            chapterNodes = subChapters;
+        } else {
+            // If no sub-chapters, assume #chapters IS the container (common in single chapter downloads)
+            chapterNodes = [chaptersNode];
+        }
+    } else {
+        // Fallback for non-standard HTML
+        const userstuff = doc.querySelector('.userstuff');
+        chapterNodes = userstuff ? [userstuff] : [doc.body];
+    }
 
-              if (currentLabel.includes('fandom')) fandom = values.join(', ');
-              else if (['rating', 'archive warning', 'category', 'relationship', 'character', 'freeform', 'tags', 'additional tags'].some(k => currentLabel.includes(k))) {
-                  tags.push(...values);
-              }
-          }
-      }
-  } 
-  
-  if (fandom === "Unknown Fandom" && tags.length === 0) {
-       const fandomElement = doc.querySelector('.fandom.tags') || doc.querySelector('.fandoms');
-       if (fandomElement && fandomElement.textContent) fandom = cleanText(fandomElement.textContent).replace(/^Fandoms?:\s*/i, '');
-       const specificTags = doc.querySelectorAll('.relationship.tags a, .character.tags a, .freeform.tags a');
-       if (specificTags.length > 0) specificTags.forEach(el => tags.push(cleanText(el.textContent)));
-  }
+    chapterNodes.forEach((chapterEl, index) => {
+        // Try to find a chapter title
+        let chapterTitle = "";
+        
+        // 1. Look for specific meta heading in multi-chapter structure
+        const metaH = chapterEl.querySelector('.meta h2.heading');
+        if (metaH) {
+            chapterTitle = cleanText(metaH.textContent);
+        } 
+        // 2. Look for sibling heading (common in single chapter structure: <h2>Title</h2> <div class="userstuff">)
+        else if (chapterEl.previousElementSibling && /^H[1-6]$/.test(chapterEl.previousElementSibling.tagName)) {
+             const prev = chapterEl.previousElementSibling;
+             // Ensure it's a TOC heading or similar
+             if (prev.classList.contains('toc-heading') || prev.classList.contains('heading')) {
+                 chapterTitle = cleanText(prev.textContent);
+             }
+        }
 
-  // --- Content Extraction ---
-  const blocks: TranslationBlock[] = [];
-  const chaptersNode = doc.getElementById('chapters');
-  let chapterNodes: Element[] = [];
+        // If multiple chapters found but no title, generate one
+        if (!chapterTitle && chapterNodes.length > 1) {
+            chapterTitle = `Chapter ${index + 1}`;
+        }
 
-  if (chaptersNode) {
-      const modules = Array.from(chaptersNode.children).filter(el => 
-          el.classList.contains('userstuff') || el.classList.contains('chapter') || el.getAttribute('role') === 'article'
-      );
-      if (modules.length > 0) chapterNodes = modules;
-      else chapterNodes = [chaptersNode];
-  } else {
-      const userstuff = doc.querySelector('.userstuff') || doc.body;
-      chapterNodes = [userstuff];
-  }
+        if (chapterTitle) {
+            blocks.push({ id: generateId(), original: chapterTitle, translated: '', isEdited: false, isLoading: false, type: 'header', chapterIndex: index });
+        }
+        
+        // If the chapter element itself is .userstuff, use it. Otherwise find the inner .userstuff
+        const contentRoot = chapterEl.classList.contains('userstuff') ? chapterEl : (chapterEl.querySelector('.userstuff') || chapterEl);
+        
+        extractBlocksFromNode(contentRoot, blocks, index);
+    });
 
-  chapterNodes.forEach((chapterEl, index) => {
-      let chapterTitle = "";
-      const metaHeading = chapterEl.querySelector('.meta h2.heading') || chapterEl.querySelector('.meta h3.heading');
-      
-      if (metaHeading) {
-          chapterTitle = cleanText(metaHeading.textContent);
-      } else if (chapterNodes.length > 1) {
-          chapterTitle = `Chapter ${index + 1}`;
-      }
+    if (blocks.length === 0) {
+        // Fallback to raw text if structure parsing failed completely
+        return { title, author, fandom, tags, url, blocks: splitTextIntoBlocks(doc.body.textContent || "") };
+    }
 
-      if (chapterTitle) {
-          blocks.push({
-              id: generateId(),
-              original: chapterTitle,
-              translated: '',
-              isEdited: false,
-              isLoading: false,
-              type: 'header',
-              chapterIndex: index
-          });
-      }
-
-      const contentRoot = chapterEl.querySelector('.userstuff[role="article"]') || chapterEl.querySelector('.userstuff') || chapterEl;
-      extractBlocksFromNode(contentRoot, blocks, index);
-  });
-
-  if (blocks.length === 0) {
-      return { title, author, fandom, tags, url, blocks: splitTextIntoBlocks(doc.body.textContent || "") };
-  }
-
-  const reindexedBlocks = recalculateChapterIndices(blocks);
-
-  return { title, author, fandom, tags, url, blocks: reindexedBlocks };
+    return { title, author, fandom, tags, url, blocks: recalculateChapterIndices(blocks) };
 };
 
 const extractBlocksFromNode = (root: Element, blocks: TranslationBlock[], chapterIndex: number) => {
-    const relevantTags = ['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'LI', 'DIV', 'HR'];
-    const allElements = Array.from(root.querySelectorAll('*'));
+    // Removed BLOCKQUOTE from relevantTags to prevent duplication (AO3 usually puts <p> inside <blockquote>)
+    const relevantTags = ['P', 'H1', 'H2', 'H3', 'H4', 'LI', 'HR']; 
     
-    for (const el of allElements) {
-        if (!relevantTags.includes(el.tagName)) continue;
+    root.querySelectorAll('*').forEach(el => {
+        const tagName = el.tagName.toUpperCase();
+        if (!relevantTags.includes(tagName)) return;
+        
+        // Skip metadata/navigation sections
+        if (el.closest('.meta') || el.closest('.navigation') || el.id === 'work_endnotes' || el.closest('#afterword')) return;
+        
+        // Skip divs (shouldn't happen with selector '*' + check, but safe to keep)
+        if (tagName === 'DIV') return;
 
-        if (el.closest('.meta') || el.closest('.navigation') || el.closest('.footer') || el.id === 'work_endnotes') continue;
-
-        if (el.tagName === 'DIV') {
-            const hasBlockChildren = Array.from(el.children).some(c => relevantTags.includes(c.tagName) && c.tagName !== 'BR');
-            if (hasBlockChildren) continue;
+        if (tagName === 'HR') {
+            blocks.push({ id: generateId(), original: '---', translated: '---', isEdited: false, isLoading: false, type: 'separator', chapterIndex });
+            return;
         }
-
-        const hasBlockChildren = Array.from(el.children).some(c => relevantTags.includes(c.tagName));
-        if (hasBlockChildren && el.tagName !== 'BLOCKQUOTE') continue; 
 
         const text = cleanText(el.textContent);
+        // "Chapter Text" is a common hidden label in AO3 structure
+        if (text.length < 1 || text === "Chapter Text") return;
         
-        if (el.tagName === 'HR') {
-            blocks.push({ id: generateId(), original: '---', translated: '---', isEdited: false, isLoading: false, type: 'separator', chapterIndex });
-            continue;
-        }
-
-        if (text.length < 1) continue; 
-        if (text === "Chapter Text") continue;
+        const isHeader = /^#+\s/.test(text) || (['H1','H2','H3','H4'].includes(tagName) && text.length < 100);
         
-        const cleanT = text.replace(/^[#*]+\s*/, '').replace(/^[\s\uFEFF\xA0]+|[\s\uFEFF\xA0]+$/g, '');
-        const isMarkdownHeader = /^#+\s/.test(text) || (['H1','H2','H3'].includes(el.tagName) && text.length < 80);
-        let isHeader = isMarkdownHeader;
-
-        blocks.push({
-            id: generateId(),
-            original: text,
-            translated: '',
-            isEdited: false,
-            isLoading: false,
-            type: isHeader ? 'header' : 'text',
-            chapterIndex
+        blocks.push({ 
+            id: generateId(), 
+            original: text, 
+            translated: '', 
+            isEdited: false, 
+            isLoading: false, 
+            type: isHeader ? 'header' : 'text', 
+            chapterIndex 
         });
-    }
+    });
 };
 
 export const parseUploadedFile = async (file: File): Promise<{ title: string, author: string, fandom: string, tags: string[], url?: string, blocks: TranslationBlock[] }> => {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const reader = new FileReader();
     reader.onload = (e) => {
-      const content = e.target?.result as string;
-      if (file.name.toLowerCase().endsWith('.html') || file.name.toLowerCase().endsWith('.htm')) {
-        try { resolve(parseHTML(content)); } catch (err) { resolve(fallbackParse(file.name, content)); }
-      } else {
-        resolve(fallbackParse(file.name, content));
-      }
+        try { resolve(parseHTML(e.target?.result as string)); }
+        catch { 
+            const b = splitTextIntoBlocks(e.target?.result as string);
+            resolve({ title: file.name, author: "Unknown", fandom: "Unknown", tags: [], blocks: recalculateChapterIndices(b) }); 
+        }
     };
-    reader.onerror = reject;
     reader.readAsText(file);
   });
 };
 
-const fallbackParse = (filename: string, content: string) => {
-    const blocks = splitTextIntoBlocks(content);
-    const indexedBlocks = recalculateChapterIndices(blocks);
-    
-    return {
-        title: filename.replace(/\.[^/.]+$/, ""),
-        author: "Unknown",
-        fandom: "Unknown",
-        tags: [],
-        url: "",
-        blocks: indexedBlocks
-    };
-};
-
-/**
- * Attempts to fetch AO3 content using multiple public CORS proxies.
- * Note: AO3 often blocks these. This is a best-effort attempt.
- */
-export const fetchAO3FromProxy = async (url: string): Promise<{ title: string, author: string, fandom: string, tags: string[], url: string, blocks: TranslationBlock[] }> => {
-    // Add view_full_work=true to ensure we get all chapters if it's a multi-chapter URL
+export const fetchAO3FromProxy = async (url: string): Promise<any> => {
     let targetUrl = url;
     if (url.includes('archiveofourown.org/works/') && !url.includes('view_full_work=true')) {
         targetUrl = url.includes('?') ? `${url}&view_full_work=true` : `${url}?view_full_work=true`;
     }
-
-    // Try a list of proxies in order. 
-    // Corsproxy.io is often more robust for headers than allorigins.
-    const proxies = [
-        `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`,
-        `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`
-    ];
-
-    let lastError: any;
-
-    for (const proxyUrl of proxies) {
-        try {
-            const response = await fetch(proxyUrl);
-            if (!response.ok) {
-                // If 403/429, likely blocked by AO3 via Cloudflare
-                continue;
-            }
-            
-            const htmlContent = await response.text();
-            
-            // Check if we actually got AO3 content or a Cloudflare challenge page
-            if (htmlContent.includes('Attention Required! | Cloudflare') || htmlContent.includes('Just a moment...')) {
-                throw new Error("Blocked by Cloudflare");
-            }
-
-            const result = parseHTML(htmlContent);
-            // Basic validation to see if parse worked
-            if (!result.title || result.title === "Untitled HTML") {
-                 // Try next proxy
-                 continue;
-            }
-
-            if (!result.url) result.url = url;
-            return result;
-
-        } catch (err) {
-            lastError = err;
-            console.warn(`Proxy failed: ${proxyUrl}`, err);
-        }
+    const proxies = [`http://localhost:3001/api/proxy?url=${encodeURIComponent(targetUrl)}`]; // Prefer local
+    
+    try {
+        const res = await fetch(proxies[0]);
+        if(!res.ok) throw new Error("Proxy failed");
+        const html = await res.text();
+        const result = parseHTML(html);
+        if(!result.url) result.url = url;
+        return result;
+    } catch(e) {
+        throw new Error("Failed to fetch via local proxy. Ensure server.js is running.");
     }
-
-    // If we get here, all proxies failed
-    throw new Error("AO3 Security blocked all proxy attempts. Please use 'File Upload' instead.");
 };
 
-export const exportTranslation = (project: TranslationProject, format: 'markdown' | 'html' | 'txt') => {
-  let content = '';
-  const filename = `${project.metadata.title || 'fanfic'}_${project.metadata.targetLanguage}.${format}`;
-  const clean = (t: string) => t.replace(/^[#\s]+/, '');
+export const exportTranslation = (project: TranslationProject, format: 'markdown' | 'html') => {
+    let content = '';
+    const filename = `${project.metadata.title}_${project.metadata.targetLanguage}.${format}`;
+    if (format === 'markdown') {
+        content = `# ${project.metadata.title}\n\n`;
+        project.blocks.forEach(b => content += b.type==='header' ? `## ${b.translated||b.original}\n\n` : `${b.translated||b.original}\n\n`);
+    } else {
+        content = `<html><body><h1>${project.metadata.title}</h1>${project.blocks.map(b => `<p>${b.translated||b.original}</p>`).join('')}</body></html>`;
+    }
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+};
 
-  if (format === 'markdown') {
-    content = `# ${project.metadata.title}\n**Author:** ${project.metadata.author}\n**Source:** ${project.metadata.url || 'N/A'}\n---\n\n`;
-    project.blocks.forEach(block => {
-      const text = block.translated || block.original;
-      if (block.type === 'header') content += `## ${clean(text)}\n\n`;
-      else if (block.type === 'separator') content += `---\n\n`;
-      else content += `${text}\n\n`;
-    });
-  } else if (format === 'html') {
-    content = `<html><body><h1>${project.metadata.title}</h1>
-        ${project.blocks.map(b => {
-             const text = clean(b.translated || b.original);
-             if (b.type === 'header') return `<h2>${text}</h2>`;
-             if (b.type === 'separator') return `<hr/>`;
-             return `<p>${b.translated.replace(/\n/g, '<br/>')}</p>`
-        }).join('')}</body></html>`;
-  } else {
-    content = `${project.metadata.title}\n\n`;
-    project.blocks.forEach(block => {
-      const text = clean(block.translated || block.original);
-      if (block.type === 'header') content += `\n[ ${text} ]\n\n`;
-      else content += `${text}\n\n`;
-    });
-  }
+export const saveToBackend = async (data: any, filename: string): Promise<boolean> => {
+    try {
+        const response = await fetch('http://localhost:3001/api/backup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ data, filename })
+        });
+        return response.ok;
+    } catch (e) {
+        console.warn("Backend backup failed (Server likely offline).", e);
+        return false;
+    }
+};
 
-  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
+export const openBackendFolder = async (): Promise<boolean> => {
+    try {
+        const response = await fetch('http://localhost:3001/api/open-folder', { method: 'POST' });
+        return response.ok;
+    } catch (e) {
+        return false;
+    }
 };

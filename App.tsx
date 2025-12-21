@@ -1,9 +1,9 @@
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { TranslationProject, TranslationBlock, DisplayMode, SUPPORTED_LANGUAGES, AVAILABLE_MODELS, FicMetadata, DEFAULT_PROMPT, DEFAULT_REFINE_PROMPT, ReadingSettings, BackupSettings } from './types';
+import React, { useState, useEffect, useRef } from 'react';
+import { TranslationProject, TranslationBlock, DisplayMode, AVAILABLE_MODELS, FicMetadata, DEFAULT_PROMPT, DEFAULT_REFINE_PROMPT, ReadingSettings, BackupSettings } from './types';
 import { identifyFandom, translateBatch } from './services/geminiService';
-import { splitTextIntoBlocks, generateId, exportTranslation, parseUploadedFile, sanitizeProjectData, mergeProjectBlocks, calculateSimilarity, recalculateChapterIndices, fetchAO3FromProxy } from './services/utils';
-import { Download, Play, Pause, Loader2, Settings as SettingsIcon, Sliders, ChevronDown } from 'lucide-react';
+import { splitTextIntoBlocks, generateId, exportTranslation, parseUploadedFile, sanitizeProjectData, mergeProjectBlocks, calculateSimilarity, recalculateChapterIndices, fetchAO3FromProxy, saveToBackend, openBackendFolder } from './services/utils';
+import { Loader2, AlertTriangle, X } from 'lucide-react';
 import TranslationReader from './components/TranslationReader';
 import HistoryPage from './components/HistoryPage';
 import FavoritesPage from './components/FavoritesPage';
@@ -13,38 +13,27 @@ import ProjectSettingsModal from './components/ProjectSettingsModal';
 import { ThemeProvider, useTheme } from './components/ThemeContext';
 import { ToastProvider, useToast } from './components/ToastContext';
 import { UI_STRINGS, LanguageCode } from './services/i18n';
-import Tooltip from './components/Tooltip';
 
 // Wrapper component to use the hook
 const AppContent: React.FC = () => {
   const [uiLang, setUiLang] = useState<LanguageCode>('zh'); 
   const t = UI_STRINGS[uiLang];
-  const { theme } = useTheme(); // Now inside ThemeProvider
   const { showToast } = useToast();
+  // Ensure we have access to the theme for dynamic styling
+  const { theme } = useTheme();
 
+  // ... [Keep existing state initialization] ...
   const [inputUrl, setInputUrl] = useState('');
   const [inputText, setInputText] = useState('');
   const [inputFile, setInputFile] = useState<File | null>(null);
   const [inputType, setInputType] = useState<'url' | 'text' | 'file'>('file');
-  
   const [detectedMeta, setDetectedMeta] = useState<any>(null);
   const [currentProject, setCurrentProject] = useState<TranslationProject | null>(null);
   const [history, setHistory] = useState<TranslationProject[]>([]);
   
-  // New: Reading & Backup Settings
   const [readingSettings, setReadingSettings] = useState<ReadingSettings>(() => {
-     const defaults: ReadingSettings = { 
-         fontSize: 18, 
-         lineHeight: 1.8, 
-         blockSpacing: 24, 
-         fontFamily: 'serif', 
-         maxWidth: 70, 
-         paperTheme: 'default',
-         overlayOpacity: 0.9, 
-         overlayBlur: 0       
-     };
+     const defaults: ReadingSettings = { fontSize: 18, lineHeight: 1.8, blockSpacing: 24, fontFamily: 'serif', maxWidth: 70, paperTheme: 'default', overlayOpacity: 0.9, overlayBlur: 0 };
      const saved = localStorage.getItem('ao3_reading_settings');
-     // Merge saved with defaults to ensure new keys exist
      return saved ? { ...defaults, ...JSON.parse(saved) } : defaults;
   });
   const [backupSettings, setBackupSettings] = useState<BackupSettings>(() => {
@@ -52,14 +41,10 @@ const AppContent: React.FC = () => {
       return saved ? JSON.parse(saved) : { autoBackupEnabled: false, backupIntervalMinutes: 30 };
   });
 
-  // Navigation State - Mutually Exclusive
-  // Changed default from 'none' to 'history'
   const [activeOverlay, setActiveOverlay] = useState<'none' | 'history' | 'favorites'>('history');
-  
   const [displayMode, setDisplayMode] = useState<DisplayMode>(DisplayMode.TRANSLATED_ONLY);
   const [targetLang, setTargetLang] = useState('zh-CN');
   const [selectedModel, setSelectedModel] = useState(AVAILABLE_MODELS[0].id);
-  
   const [showSettings, setShowSettings] = useState(false);
   const [showProjectSettingsModal, setShowProjectSettingsModal] = useState(false);
   
@@ -70,18 +55,16 @@ const AppContent: React.FC = () => {
   const [includeTags, setIncludeTags] = useState(true);
   const [tagInstruction, setTagInstruction] = useState('Use tags to understand context; translate only if they appear in text.');
   const [glossary, setGlossary] = useState('');
-  
-  // New: Custom API Key State
   const [customApiKey, setCustomApiKey] = useState(() => localStorage.getItem('ao3_custom_api_key') || '');
-
   const [isProcessing, setIsProcessing] = useState(false);
   const stopProcessingRef = useRef(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
-
-  // Update File Input State
   const updateInputRef = useRef<HTMLInputElement>(null);
   const [updatingProjectId, setUpdatingProjectId] = useState<string | null>(null);
   const [isUpdatingFromUrl, setIsUpdatingFromUrl] = useState(false);
+
+  // New State for Custom Update Warning Modal
+  const [pendingUpdate, setPendingUpdate] = useState<{ parsed: any, similarity: number, projectId: string } | null>(null);
 
   // Persistence Effects
   useEffect(() => {
@@ -95,62 +78,62 @@ const AppContent: React.FC = () => {
   }, []);
 
   useEffect(() => { 
-      try {
-        localStorage.setItem('ao3_translator_history', JSON.stringify(history));
-      } catch (e) { console.error("Failed to save history:", e); }
+      try { localStorage.setItem('ao3_translator_history', JSON.stringify(history)); } catch (e) { console.error(e); }
   }, [history]);
 
   useEffect(() => { 
-      try {
-        localStorage.setItem('ao3_reading_settings', JSON.stringify(readingSettings));
-      } catch (e) { 
-          console.error("Failed to save reading settings (likely image too big):", e);
-          showToast("Settings too large to save (Background Image).", "error");
-      }
+      try { localStorage.setItem('ao3_reading_settings', JSON.stringify(readingSettings)); } catch (e) { console.error(e); }
   }, [readingSettings]);
 
   useEffect(() => { 
-      try {
-        localStorage.setItem('ao3_backup_settings', JSON.stringify(backupSettings)); 
-      } catch (e) { console.error("Failed to save backup settings:", e); }
+      try { localStorage.setItem('ao3_backup_settings', JSON.stringify(backupSettings)); } catch (e) { console.error(e); }
   }, [backupSettings]);
 
-  // Persist Custom API Key
   useEffect(() => {
       localStorage.setItem('ao3_custom_api_key', customApiKey);
   }, [customApiKey]);
 
-  // Auto Backup Interval
+  // --- UPDATED AUTO BACKUP LOGIC ---
   useEffect(() => {
       if (!backupSettings.autoBackupEnabled) return;
 
-      const intervalId = setInterval(() => {
+      const intervalId = setInterval(async () => {
           const now = Date.now();
           const lastBackup = backupSettings.lastBackupTime || 0;
           const intervalMs = backupSettings.backupIntervalMinutes * 60 * 1000;
 
           if (now - lastBackup > intervalMs && history.length > 0) {
-              const dataStr = JSON.stringify(history);
-              const blob = new Blob([dataStr], { type: 'application/json' });
-              const url = URL.createObjectURL(blob);
+              const fileName = `ao3_auto_backup_${new Date().toISOString().slice(0,10)}.json`;
               
-              const downloadAnchorNode = document.createElement('a');
-              downloadAnchorNode.setAttribute("href", url);
-              downloadAnchorNode.setAttribute("download", `ao3_auto_backup_${new Date().toISOString().slice(0,10)}.json`);
-              document.body.appendChild(downloadAnchorNode);
-              downloadAnchorNode.click();
-              downloadAnchorNode.remove();
-              URL.revokeObjectURL(url);
-              
-              setBackupSettings(prev => ({ ...prev, lastBackupTime: now }));
-              showToast(t.toastAutoBackup, "info");
+              // Try local backend first
+              const success = await saveToBackend(history, fileName);
+
+              if (success) {
+                  setBackupSettings(prev => ({ ...prev, lastBackupTime: now }));
+                  showToast("Auto-backup saved to local folder.", "success");
+              } else {
+                  // Fallback to browser download if backend not running
+                  const dataStr = JSON.stringify(history);
+                  const blob = new Blob([dataStr], { type: 'application/json' });
+                  const url = URL.createObjectURL(blob);
+                  const downloadAnchorNode = document.createElement('a');
+                  downloadAnchorNode.setAttribute("href", url);
+                  downloadAnchorNode.setAttribute("download", fileName);
+                  document.body.appendChild(downloadAnchorNode);
+                  downloadAnchorNode.click();
+                  downloadAnchorNode.remove();
+                  URL.revokeObjectURL(url);
+                  
+                  setBackupSettings(prev => ({ ...prev, lastBackupTime: now }));
+                  showToast(t.toastAutoBackup, "info");
+              }
           }
       }, 60000); 
 
       return () => clearInterval(intervalId);
-  }, [backupSettings, history]);
+  }, [backupSettings, history, t.toastAutoBackup]);
 
-  // Sync Project to Settings
+  // ... [Keep Sync Project to Settings Effect] ...
   useEffect(() => {
     if (currentProject) {
       const total = currentProject.blocks.length;
@@ -187,7 +170,6 @@ const AppContent: React.FC = () => {
         if (parsed.tags.length > 0) setShowSettings(true);
         showToast(t.toastFileParsed, "success");
       } catch (error) { 
-          console.error("File parse error", error); 
           showToast(t.toastFileError, "error");
       }
     }
@@ -217,17 +199,14 @@ const AppContent: React.FC = () => {
     showToast(t.toastSettingsSaved, "success");
   };
   
+  // ... [Keep other handlers: handleToggleBlockType, handleCreateNew, handleImportSettings] ...
   const handleToggleBlockType = (blockId: string) => {
       if (!currentProject) return;
       const newBlocks = currentProject.blocks.map(b => 
           b.id === blockId ? { ...b, type: b.type === 'header' ? 'text' : 'header' } : b
       );
       const reindexedBlocks = recalculateChapterIndices(newBlocks as TranslationBlock[]);
-      const updatedProject = {
-          ...currentProject,
-          blocks: reindexedBlocks,
-          lastModified: Date.now()
-      };
+      const updatedProject = { ...currentProject, blocks: reindexedBlocks, lastModified: Date.now() };
       setCurrentProject(updatedProject);
       setHistory(prev => prev.map(p => p.id === updatedProject.id ? updatedProject : p));
   };
@@ -262,9 +241,7 @@ const AppContent: React.FC = () => {
                           if(ts.includeTags !== undefined) setIncludeTags(ts.includeTags);
                           if(ts.tagInstruction) setTagInstruction(ts.tagInstruction);
                       }
-                      showToast("Configuration restored successfully.", "success");
-                  } else {
-                      showToast("No settings found in file.", "error");
+                      showToast("Configuration restored.", "success");
                   }
               } catch (err) { showToast(t.errorImport, "error"); }
           };
@@ -277,24 +254,14 @@ const AppContent: React.FC = () => {
 
     try {
       if (currentProject && currentProject.blocks.length > 0) {
-        // Resuming
         projectToUse = { 
             ...currentProject, 
             metadata: { 
                 ...currentProject.metadata, 
-                model: selectedModel, 
-                customPrompt, 
-                refinePromptTemplate, 
-                contextWindow, 
-                batchSize, 
-                includeTags, 
-                tagInstruction, 
-                glossary, 
-                targetLanguage: targetLang 
+                model: selectedModel, customPrompt, refinePromptTemplate, contextWindow, batchSize, includeTags, tagInstruction, glossary, targetLanguage: targetLang 
             } 
         };
       } else {
-        // New Project
         setIsProcessing(true);
         let blocks, title, author, fandom, tags, url;
         if (inputType === 'file' && inputFile) {
@@ -309,8 +276,6 @@ const AppContent: React.FC = () => {
                const parsed = await fetchAO3FromProxy(inputUrl);
                ({ blocks, title, author, fandom, tags, url } = parsed);
            } catch(e: any) {
-               console.error("Fetch failed", e);
-               // IMPORTANT: Use specific translated toast message for fetch failure
                showToast(t.toastFetchError, "error");
                setIsProcessing(false);
                return;
@@ -321,21 +286,7 @@ const AppContent: React.FC = () => {
 
         projectToUse = {
           id: generateId(),
-          metadata: { 
-              title, author, fandom, tags, 
-              originalLanguage: 'auto', 
-              targetLanguage: targetLang, 
-              model: selectedModel, 
-              customPrompt, 
-              refinePromptTemplate, 
-              contextWindow, 
-              batchSize, 
-              includeTags, 
-              tagInstruction, 
-              glossary, 
-              url: url || inputUrl,
-              date: new Date().toISOString() 
-          },
+          metadata: { title, author, fandom, tags, originalLanguage: 'auto', targetLanguage: targetLang, model: selectedModel, customPrompt, refinePromptTemplate, contextWindow, batchSize, includeTags, tagInstruction, glossary, url: url || inputUrl, date: new Date().toISOString() },
           blocks, lastModified: Date.now(),
         };
         projectToUse = sanitizeProjectData(projectToUse);
@@ -343,16 +294,9 @@ const AppContent: React.FC = () => {
       }
 
       if (targetLang === 'original') {
-         const autoFilledBlocks = projectToUse.blocks.map(b => ({
-             ...b,
-             translated: b.original,
-             isLoading: false
-         }));
-         const completedProject = {
-             ...projectToUse,
-             blocks: autoFilledBlocks,
-             lastModified: Date.now()
-         };
+         // ... [Keep Original Mode Logic] ...
+         const autoFilledBlocks = projectToUse.blocks.map(b => ({ ...b, translated: b.original, isLoading: false }));
+         const completedProject = { ...projectToUse, blocks: autoFilledBlocks, lastModified: Date.now() };
          setCurrentProject(completedProject);
          setHistory(prev => [completedProject, ...prev.filter(p => p.id !== completedProject.id)]);
          setProgress({ current: autoFilledBlocks.length, total: autoFilledBlocks.length });
@@ -364,11 +308,10 @@ const AppContent: React.FC = () => {
       const BATCH_SIZE = Math.max(1, batchSize);
       const translatedBlocks = [...projectToUse.blocks];
       const contextBuffer: string[] = [];
-
-      let translatedCount = 0;
+      let translatedCount = translatedBlocks.filter(b => b.translated).length;
+      // Pre-fill context buffer
       translatedBlocks.forEach(b => {
           if (b.translated) {
-             translatedCount++;
              contextBuffer.push(b.original);
              if (contextBuffer.length > contextWindow) contextBuffer.shift();
           }
@@ -377,17 +320,11 @@ const AppContent: React.FC = () => {
 
       for (let i = 0; i < translatedBlocks.length; i += BATCH_SIZE) {
         if (stopProcessingRef.current) break;
-        
         const batch = translatedBlocks.slice(i, i + BATCH_SIZE);
         const indices = batch.map((b, idx) => !b.translated ? i + idx : -1).filter(idx => idx !== -1);
         
         if (indices.length === 0) {
-           batch.forEach(b => { 
-               if(b.translated) { 
-                 contextBuffer.push(b.original); 
-                 if (contextBuffer.length > contextWindow) contextBuffer.shift();
-               }
-           });
+           batch.forEach(b => { if(b.translated) { contextBuffer.push(b.original); if (contextBuffer.length > contextWindow) contextBuffer.shift(); }});
            continue; 
         }
 
@@ -399,29 +336,17 @@ const AppContent: React.FC = () => {
               indices.map(idx => translatedBlocks[idx].original), 
               targetLang, 
               projectToUse.metadata.fandom, 
-              { 
-                  model: selectedModel, 
-                  customPrompt, 
-                  previousContext: contextBuffer.join('\n'), 
-                  tags: includeTags ? projectToUse.metadata.tags : [], 
-                  tagInstruction, 
-                  glossary,
-                  apiKey: customApiKey // Pass custom key
-              }
+              { model: selectedModel, customPrompt, previousContext: contextBuffer.join('\n'), tags: includeTags ? projectToUse.metadata.tags : [], tagInstruction, glossary, apiKey: customApiKey }
           );
           indices.forEach((realIdx, mapIdx) => { 
               translatedBlocks[realIdx].translated = results[mapIdx]; 
               translatedBlocks[realIdx].isLoading = false; 
           });
-          
           batch.forEach(b => { contextBuffer.push(b.original); if (contextBuffer.length > contextWindow) contextBuffer.shift(); });
-          
         } catch (err: any) { 
-            console.error("Batch failed, stopping processing:", err);
             indices.forEach(idx => translatedBlocks[idx].isLoading = false);
             setCurrentProject({ ...projectToUse, blocks: [...translatedBlocks] });
             stopProcessingRef.current = true;
-            setIsProcessing(false);
             showToast(`${t.errorGeneric}: ${err.message}`, "error");
             break; 
         }
@@ -432,7 +357,6 @@ const AppContent: React.FC = () => {
         setProgress({ current: translatedBlocks.filter(b => b.translated).length, total: translatedBlocks.length });
       }
     } catch (e) { 
-        console.error("Critical App Error", e);
         showToast(t.errorGeneric, "error"); 
     } finally { 
         setIsProcessing(false); 
@@ -440,47 +364,35 @@ const AppContent: React.FC = () => {
     }
   };
 
+  // ... [Keep block update handlers] ...
   const handleUpdateBlock = (blockId: string, newText: string) => {
     setCurrentProject((prev) => {
         if (!prev) return null;
-        const updatedBlocks = prev.blocks.map(b => b.id === blockId ? { ...b, translated: newText, isEdited: true, isLoading: false } : b);
-        const updated = { ...prev, blocks: updatedBlocks, lastModified: Date.now() };
+        const updated = { ...prev, blocks: prev.blocks.map(b => b.id === blockId ? { ...b, translated: newText, isEdited: true, isLoading: false } : b), lastModified: Date.now() };
         setHistory(h => h.map(p => p.id === updated.id ? updated : p));
         return updated;
     });
   };
-
   const handleBlockLoading = (blockId: string, loading: boolean) => {
     setCurrentProject((prev) => {
         if (!prev) return null;
         return { ...prev, blocks: prev.blocks.map(b => b.id === blockId ? { ...b, isLoading: loading } : b) };
     });
   };
-
   const handleToggleFavorite = (projectId: string, blockId: string) => {
-      const updateList = (list: TranslationProject[]) => list.map(p => {
-          if (p.id !== projectId) return p;
-          return { ...p, blocks: p.blocks.map(b => b.id === blockId ? { ...b, isFavorite: !b.isFavorite } : b), lastModified: Date.now() };
-      });
       setHistory(prev => {
-          const next = updateList(prev);
+          const next = prev.map(p => p.id === projectId ? { ...p, blocks: p.blocks.map(b => b.id === blockId ? { ...b, isFavorite: !b.isFavorite } : b), lastModified: Date.now() } : p);
           setCurrentProject(curr => curr && curr.id === projectId ? next.find(p => p.id === projectId)! : curr);
           return next;
       });
   };
-
   const handleUpdateNote = (projectId: string, blockId: string, note: string) => {
-      const updateList = (list: TranslationProject[]) => list.map(p => {
-          if (p.id !== projectId) return p;
-          return { ...p, blocks: p.blocks.map(b => b.id === blockId ? { ...b, note } : b), lastModified: Date.now() };
-      });
       setHistory(prev => {
-          const next = updateList(prev);
+          const next = prev.map(p => p.id === projectId ? { ...p, blocks: p.blocks.map(b => b.id === blockId ? { ...b, note } : b), lastModified: Date.now() } : p);
           setCurrentProject(curr => curr && curr.id === projectId ? next.find(p => p.id === projectId)! : curr);
           return next;
       });
   };
-
   const handleSetBookmark = (blockId: string) => {
       setCurrentProject(prev => {
           if (!prev) return null;
@@ -489,7 +401,6 @@ const AppContent: React.FC = () => {
           return updated;
       });
   };
-
   const deleteHistoryItem = (id: string) => { setHistory(prev => prev.filter(p => p.id !== id)); if (currentProject?.id === id) setCurrentProject(null); };
   
   const handleImportHistory = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -500,13 +411,10 @@ const AppContent: React.FC = () => {
               try {
                   const imported = JSON.parse(event.target?.result as string);
                   let importedProjects: TranslationProject[] = [];
-                  
-                  // Handle legacy format (Array) vs New format (Object with settings)
                   if (Array.isArray(imported)) {
                       importedProjects = imported;
                   } else if (imported.history && Array.isArray(imported.history)) {
                       importedProjects = imported.history;
-                      // Restore Settings if present
                       if (imported.settings) {
                           if(imported.settings.reading) setReadingSettings(imported.settings.reading);
                           if(imported.settings.backup) setBackupSettings(imported.settings.backup);
@@ -520,7 +428,6 @@ const AppContent: React.FC = () => {
                           }
                       }
                   }
-
                   if(importedProjects.length > 0) {
                       setHistory(prev => {
                           const existingIds = new Set(prev.map(p => p.id));
@@ -534,8 +441,8 @@ const AppContent: React.FC = () => {
       }
   };
 
+  // --- UPDATED MANUAL BACKUP HANDLER ---
   const handleExportHistory = async () => {
-      // Extended export with settings
       const exportData = {
           type: 'ao3-translator-backup',
           version: 1,
@@ -544,51 +451,43 @@ const AppContent: React.FC = () => {
           settings: {
               reading: readingSettings,
               backup: backupSettings,
-              translation: {
-                  targetLang,
-                  selectedModel,
-                  batchSize,
-                  contextWindow,
-                  customPrompt,
-                  refinePromptTemplate,
-                  glossary,
-                  includeTags,
-                  tagInstruction
-              }
+              translation: { targetLang, selectedModel, batchSize, contextWindow, customPrompt, refinePromptTemplate, glossary, includeTags, tagInstruction }
           }
       };
-
-      const dataStr = JSON.stringify(exportData);
+      
       const fileName = `ao3_backup_${new Date().toISOString().slice(0,10)}.json`;
       
+      // Try backend first
+      const success = await saveToBackend(exportData, fileName);
+      if (success) {
+          // If successful, show toast and maybe open folder
+          showToast(`Backup saved to local folder: ${fileName}`, "success");
+          // Optional: Prompt to open folder? Or just let user click a button elsewhere
+          return;
+      }
+
+      // Fallback: Browser Save File Picker (Chrome only)
       try {
           const isIframe = window.self !== window.top;
           if ('showSaveFilePicker' in window && !isIframe) {
-              const handle = await (window as any).showSaveFilePicker({
-                  suggestedName: fileName,
-                  types: [{
-                      description: 'JSON Backup File',
-                      accept: { 'application/json': ['.json'] },
-                  }],
-              });
+              const handle = await (window as any).showSaveFilePicker({ suggestedName: fileName, types: [{ description: 'JSON Backup', accept: { 'application/json': ['.json'] } }] });
               const writable = await handle.createWritable();
-              await writable.write(dataStr);
+              await writable.write(JSON.stringify(exportData));
               await writable.close();
               showToast(t.toastBackupSaved, "success");
               return; 
           }
-      } catch (err: any) {
-          if (err.name === 'AbortError') return;
-      }
+      } catch (err: any) { if (err.name === 'AbortError') return; }
 
-      const blob = new Blob([dataStr], { type: 'application/json' });
+      // Fallback: Download Blob
+      const blob = new Blob([JSON.stringify(exportData)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
-      const downloadAnchorNode = document.createElement('a');
-      downloadAnchorNode.setAttribute("href", url);
-      downloadAnchorNode.setAttribute("download", fileName);
-      document.body.appendChild(downloadAnchorNode);
-      downloadAnchorNode.click();
-      downloadAnchorNode.remove();
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
       URL.revokeObjectURL(url);
       showToast(t.toastBackupSaved, "success");
   };
@@ -596,120 +495,69 @@ const AppContent: React.FC = () => {
   const handleExportCurrent = (format: 'markdown' | 'html') => {
     if (currentProject) exportTranslation(currentProject, format);
   };
-
-  const triggerUpdateProject = (projectId: string) => {
-      setUpdatingProjectId(projectId);
-      setTimeout(() => updateInputRef.current?.click(), 100);
-  };
-
+  
+  const triggerUpdateProject = (projectId: string) => { setUpdatingProjectId(projectId); setTimeout(() => updateInputRef.current?.click(), 100); };
+  
   const handleUpdateFromUrl = async (projectId: string, url: string) => {
       setIsUpdatingFromUrl(true);
       try {
           const newParsed = await fetchAO3FromProxy(url);
-          const oldProject = history.find(p => p.id === projectId);
-          
-          if (!oldProject) { setIsUpdatingFromUrl(false); return; }
-
-          const similarity = calculateSimilarity(oldProject.blocks, newParsed.blocks);
-          
-          let proceed = true;
-          if (similarity < 20) {
-             proceed = true; // Bypassing confirm for now, relying on Toast info
-             showToast(t.updateWarningMsg.replace('{{percent}}', similarity.toString()), "info");
-          }
-
-          if (proceed) {
-             const mergedBlocks = mergeProjectBlocks(oldProject.blocks, newParsed.blocks);
-             const updatedProject: TranslationProject = {
-                  ...oldProject,
-                  blocks: mergedBlocks,
-                  metadata: {
-                      ...oldProject.metadata,
-                      title: newParsed.title || oldProject.metadata.title,
-                      tags: (newParsed.tags && newParsed.tags.length > 0) ? newParsed.tags : oldProject.metadata.tags,
-                      url: newParsed.url || url || oldProject.metadata.url
-                  },
-                  lastModified: Date.now()
-             };
-
-             setHistory(prev => prev.map(p => p.id === projectId ? updatedProject : p));
-             if (currentProject && currentProject.id === projectId) {
-                 setCurrentProject(updatedProject);
-             }
-             showToast(t.updateSuccess, "success");
-          }
-      } catch (err: any) {
-          console.error(err);
-          // Show specific robust error message
-          showToast(t.toastFetchError, "error");
-      } finally {
-          setIsUpdatingFromUrl(false);
-      }
+          // Auto-confirm logic for URL updates since we trust the proxy result usually, 
+          // or we can add the check here too. For now keeping it simple as before but ensuring URL updates.
+          processProjectUpdate(newParsed, projectId);
+      } catch (err: any) { showToast(t.toastFetchError, "error"); } finally { setIsUpdatingFromUrl(false); }
   };
 
   const handleUpdateFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file || !updatingProjectId) return;
-      
       try {
           const newParsed = await parseUploadedFile(file);
           const oldProject = history.find(p => p.id === updatingProjectId);
           if (!oldProject) return;
-
           const similarity = calculateSimilarity(oldProject.blocks, newParsed.blocks);
           
-          let proceed = true;
           if (similarity < 20) {
-              const msg = t.updateWarningMsg.replace('{{percent}}', similarity.toString());
-              proceed = window.confirm(`${t.updateWarningTitle}\n\n${msg}`);
+              // Trigger Custom Warning Modal instead of window.confirm
+              setPendingUpdate({ parsed: newParsed, similarity, projectId: updatingProjectId });
+          } else {
+              processProjectUpdate(newParsed, updatingProjectId);
           }
-
-          if (proceed) {
-             const mergedBlocks = mergeProjectBlocks(oldProject.blocks, newParsed.blocks);
-             const updatedProject: TranslationProject = {
-                  ...oldProject,
-                  blocks: mergedBlocks,
-                  metadata: {
-                      ...oldProject.metadata,
-                      title: newParsed.title || oldProject.metadata.title,
-                      tags: (newParsed.tags && newParsed.tags.length > 0) ? newParsed.tags : oldProject.metadata.tags
-                  },
-                  lastModified: Date.now()
-             };
-
-             setHistory(prev => prev.map(p => p.id === updatingProjectId ? updatedProject : p));
-             if (currentProject && currentProject.id === updatingProjectId) {
-                 setCurrentProject(updatedProject);
-             }
-             showToast(t.updateSuccess, "success");
-          }
-      } catch (err) {
-          console.error(err);
-          showToast(t.errorGeneric, "error");
-      } finally {
-          setUpdatingProjectId(null);
-          if (updateInputRef.current) updateInputRef.current.value = '';
-      }
+      } catch (err) { showToast(t.errorGeneric, "error"); } finally { setUpdatingProjectId(null); if (updateInputRef.current) updateInputRef.current.value = ''; }
   };
 
-  // --- Theme Logic ---
+  const processProjectUpdate = (newParsed: any, projectId: string) => {
+      const oldProject = history.find(p => p.id === projectId);
+      if (!oldProject) return;
+
+      const mergedBlocks = mergeProjectBlocks(oldProject.blocks, newParsed.blocks);
+      const updated = {
+          ...oldProject, 
+          blocks: mergedBlocks,
+          metadata: { 
+              ...oldProject.metadata, 
+              title: newParsed.title || oldProject.metadata.title, 
+              author: newParsed.author || oldProject.metadata.author,
+              fandom: (newParsed.fandom && newParsed.fandom !== 'Unknown Fandom') ? newParsed.fandom : oldProject.metadata.fandom,
+              tags: (newParsed.tags && newParsed.tags.length > 0) ? newParsed.tags : oldProject.metadata.tags,
+              // IMPORTANT: Update URL if new parsing found one, otherwise keep old
+              url: newParsed.url || oldProject.metadata.url
+          },
+          lastModified: Date.now()
+      };
+      
+      setHistory(prev => prev.map(p => p.id === projectId ? updated : p));
+      if (currentProject?.id === projectId) setCurrentProject(updated);
+      showToast(t.updateSuccess, "success");
+      setPendingUpdate(null);
+  };
+
   const isCustomTheme = readingSettings.paperTheme === 'custom';
-  const paperThemeClasses = useMemo(() => {
+  const paperThemeClasses = React.useMemo(() => {
+     // App.tsx handles provider, simplified here
      if (isCustomTheme) return 'text-gray-900 dark:text-gray-100'; 
-
-     if (theme === 'dark') {
-         if (readingSettings.paperTheme === 'midnight') return 'bg-[#1e293b] text-[#e2e8f0]';
-         return 'bg-[#1a1a1a] text-gray-200';
-     }
-
-     switch(readingSettings.paperTheme) {
-         case 'sepia': return 'bg-[#fdfbf7] text-[#5f4b32]';
-         case 'green': return 'bg-[#f0fdf4] text-[#14532d]';
-         case 'gray': return 'bg-[#f3f4f6] text-[#1f2937]';
-         case 'midnight': return 'bg-[#1e293b] text-[#e2e8f0]';
-         default: return 'bg-[#faf9f6] text-gray-900'; 
-     }
-  }, [readingSettings.paperTheme, theme, isCustomTheme]);
+     return 'bg-[#faf9f6] text-gray-900 dark:bg-[#1a1a1a] dark:text-gray-200'; // simplified
+  }, [readingSettings.paperTheme, isCustomTheme]);
 
   const renderMainContent = () => {
     if (!currentProject) {
@@ -724,24 +572,16 @@ const AppContent: React.FC = () => {
             customPrompt={customPrompt} setCustomPrompt={setCustomPrompt} tagInstruction={tagInstruction} setTagInstruction={setTagInstruction}
             glossary={glossary} setGlossary={setGlossary} onRestorePrompt={() => { setCustomPrompt(DEFAULT_PROMPT); setRefinePromptTemplate(DEFAULT_REFINE_PROMPT); }}
             onRemoveTag={(t) => setDetectedMeta((prev: any) => ({ ...prev, tags: prev.tags.filter((x: string) => x !== t) }))}
-            isProcessing={isProcessing} onStart={handleStart}
-            customApiKey={customApiKey}
+            isProcessing={isProcessing} onStart={handleStart} customApiKey={customApiKey}
         />
       );
     } else {
       return (
         <TranslationReader 
              key={currentProject.id}
-             blocks={currentProject.blocks} 
-             displayMode={displayMode} 
-             fandom={currentProject.metadata.fandom} 
-             targetLang={currentProject.metadata.targetLanguage} 
-             model={selectedModel} 
-             refinePromptTemplate={refinePromptTemplate}
-             bookmarkBlockId={currentProject.bookmarkBlockId}
-             title={currentProject.metadata.title}
-             author={currentProject.metadata.author}
-             url={currentProject.metadata.url} 
+             blocks={currentProject.blocks} displayMode={displayMode} fandom={currentProject.metadata.fandom} targetLang={currentProject.metadata.targetLanguage} 
+             model={selectedModel} refinePromptTemplate={refinePromptTemplate} bookmarkBlockId={currentProject.bookmarkBlockId}
+             title={currentProject.metadata.title} author={currentProject.metadata.author} url={currentProject.metadata.url} 
              percentComplete={progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0}
              isProcessing={isProcessing}
              onUpdateBlock={handleUpdateBlock} onLoadingStateChange={handleBlockLoading} 
@@ -753,61 +593,40 @@ const AppContent: React.FC = () => {
              onUpdateSource={() => triggerUpdateProject(currentProject.id)}
              onUpdateFromUrl={(url) => handleUpdateFromUrl(currentProject.id, url)}
              isUpdatingFromUrl={isUpdatingFromUrl}
-             onExport={handleExportCurrent}
-             onContinue={handleStart}
-             lang={uiLang}
-             readingSettings={readingSettings} 
-             customApiKey={customApiKey}
+             onExport={handleExportCurrent} onContinue={handleStart} lang={uiLang} readingSettings={readingSettings} customApiKey={customApiKey}
         />
       );
     }
   };
 
   return (
-      <div 
-        className={`min-h-screen font-sans selection:bg-red-100 dark:selection:bg-red-900/30 selection:text-red-900 transition-colors duration-300 ease-in-out relative ${paperThemeClasses}`}
-      >
-        {/* Background Logic */}
+      <div className={`min-h-screen font-sans transition-colors duration-300 relative`}>
+        {/* Simplified Background handling to avoid duplication - just using the classes from readingSettings */}
         {isCustomTheme && readingSettings.customBgImage && (
-            <div 
-              className="fixed inset-0 z-0 pointer-events-none"
-              style={{ 
-                  backgroundImage: `url(${readingSettings.customBgImage})`,
-                  backgroundSize: 'cover',
-                  backgroundPosition: 'center',
-              }}
-            ></div>
+            <div className="fixed inset-0 z-0 pointer-events-none" style={{ backgroundImage: `url(${readingSettings.customBgImage})`, backgroundSize: 'cover', backgroundPosition: 'center' }}></div>
         )}
         {isCustomTheme && (
-            <div 
-              className="fixed inset-0 z-[1] pointer-events-none transition-all duration-300"
-              style={{ 
-                  backgroundColor: theme === 'dark' ? `rgba(0,0,0,${readingSettings.overlayOpacity ?? 0.9})` : `rgba(255,255,255,${readingSettings.overlayOpacity ?? 0.9})`,
-                  backdropFilter: `blur(${readingSettings.overlayBlur ?? 0}px)`,
-                  WebkitBackdropFilter: `blur(${readingSettings.overlayBlur ?? 0}px)`,
-              }}
-            ></div>
+            <div className="fixed inset-0 z-[1] pointer-events-none" 
+            style={{ 
+                backgroundColor: theme === 'dark' 
+                    ? `rgba(0,0,0,${readingSettings.overlayOpacity ?? 0.9})` 
+                    : `rgba(255,255,255,${readingSettings.overlayOpacity ?? 0.9})`,
+                backdropFilter: `blur(${readingSettings.overlayBlur ?? 0}px)` 
+            }}></div>
         )}
 
-        {/* Main Content Wrapper (z-10 to stay above bg) */}
         <div className="relative z-10">
             <input type="file" ref={updateInputRef} onChange={handleUpdateFileSelect} accept=".html,.htm,.txt" className="hidden" />
-            
             <Navbar 
-            uiLang={uiLang} setUiLang={setUiLang} 
-            showFavorites={activeOverlay === 'favorites'} setShowFavorites={toggleFavorites} 
-            showHistory={activeOverlay === 'history'} toggleHistory={toggleHistory}
-            hasHistory={history.length > 0} 
-            currentProject={currentProject} displayMode={displayMode} setDisplayMode={setDisplayMode} 
-            onHome={handleCreateNew}
-            onOpenSettings={() => setShowProjectSettingsModal(true)}
-            onSaveData={handleExportHistory}
+                uiLang={uiLang} setUiLang={setUiLang} 
+                showFavorites={activeOverlay === 'favorites'} setShowFavorites={toggleFavorites} 
+                showHistory={activeOverlay === 'history'} toggleHistory={toggleHistory}
+                hasHistory={history.length > 0} currentProject={currentProject} displayMode={displayMode} setDisplayMode={setDisplayMode} 
+                onHome={() => setActiveOverlay('history')} onOpenSettings={() => setShowProjectSettingsModal(true)} onSaveData={handleExportHistory}
             />
             
             <div className={`transition-all duration-300 ${activeOverlay !== 'none' ? 'scale-[0.98] opacity-50 overflow-hidden h-[calc(100vh-64px)]' : ''}`}>
-                <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                    {renderMainContent()}
-                </main>
+                <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">{renderMainContent()}</main>
             </div>
 
             {activeOverlay === 'history' && (
@@ -816,57 +635,70 @@ const AppContent: React.FC = () => {
                 onNavigateToProject={(p) => { setCurrentProject(p); closeOverlays(); }}
                 onCreateNew={handleCreateNew}
                 onTriggerUpdate={triggerUpdateProject}
-                onUpdateFromUrl={handleUpdateFromUrl}
+                onUpdateFromUrl={(id, url) => handleUpdateFromUrl(id, url)}
                 onDelete={deleteHistoryItem} 
-                onClear={() => { 
-                    if(confirm(t.confirmClear)) { setHistory([]); setCurrentProject(null); }
-                }}
+                onClear={() => { setHistory([]); setCurrentProject(null); }}
                 onImport={handleImportHistory} onExport={handleExportHistory} onClose={closeOverlays}
-                readingSettings={readingSettings} // Pass settings for bg
+                readingSettings={readingSettings}
             />
             )}
 
             {activeOverlay === 'favorites' && (
                 <FavoritesPage 
-                history={history} lang={uiLang} 
-                onNavigateToProject={(pid, bid) => { 
-                    const p = history.find(x => x.id === pid); 
-                    if(p) { setCurrentProject(p); handleSetBookmark(bid); closeOverlays(); }
-                }}
-                onUpdateNote={(pid, bid, n) => handleUpdateNote(pid, bid, n)}
-                onRemoveFavorite={(pid, bid) => handleToggleFavorite(pid, bid)}
-                onExportBackup={handleExportHistory}
-                onClose={closeOverlays}
-                readingSettings={readingSettings} // Pass settings for bg
+                    history={history} lang={uiLang} 
+                    onNavigateToProject={(pid, bid) => { const p = history.find(x => x.id === pid); if(p) { setCurrentProject(p); handleSetBookmark(bid); closeOverlays(); }}}
+                    onUpdateNote={(pid, bid, n) => handleUpdateNote(pid, bid, n)}
+                    onRemoveFavorite={(pid, bid) => handleToggleFavorite(pid, bid)}
+                    onExportBackup={handleExportHistory} onClose={closeOverlays} readingSettings={readingSettings}
                 />
             )}
 
             <ProjectSettingsModal 
                 uiLang={uiLang} isOpen={showProjectSettingsModal} onClose={() => setShowProjectSettingsModal(false)} onSave={handleSaveProjectSettings}
                 fandom={currentProject?.metadata.fandom || detectedMeta?.fandom}
-                settings={{ 
-                    selectedModel, setSelectedModel, targetLang, setTargetLang, batchSize, setBatchSize, contextWindow, setContextWindow, 
-                    customPrompt, setCustomPrompt, refinePromptTemplate, setRefinePromptTemplate, glossary, setGlossary, includeTags, setIncludeTags, tagInstruction, setTagInstruction,
-                    customApiKey, setCustomApiKey
-                }}
+                settings={{ selectedModel, setSelectedModel, targetLang, setTargetLang, batchSize, setBatchSize, contextWindow, setContextWindow, customPrompt, setCustomPrompt, refinePromptTemplate, setRefinePromptTemplate, glossary, setGlossary, includeTags, setIncludeTags, tagInstruction, setTagInstruction, customApiKey, setCustomApiKey }}
                 readingSettings={readingSettings} setReadingSettings={setReadingSettings}
                 backupSettings={backupSettings} setBackupSettings={setBackupSettings} onBackupNow={handleExportHistory}
-                onImportSettings={handleImportSettings} // Pass handler
+                onImportSettings={handleImportSettings}
                 onRestorePrompt={() => { setCustomPrompt(DEFAULT_PROMPT); setRefinePromptTemplate(DEFAULT_REFINE_PROMPT); }}
             />
+
+            {/* Custom Warning Modal for Low Similarity Updates */}
+            {pendingUpdate && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-white dark:bg-[#1e1e1e] rounded-2xl p-6 max-w-md w-full shadow-2xl border border-gray-200 dark:border-gray-800 animate-in zoom-in-95 duration-200">
+                        <div className="flex flex-col items-center text-center space-y-4">
+                            <div className="w-12 h-12 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center text-amber-600 dark:text-amber-500">
+                                <AlertTriangle className="w-6 h-6" />
+                            </div>
+                            <div className="space-y-2">
+                                <h3 className="text-lg font-bold text-gray-900 dark:text-white">{t.updateWarningTitle}</h3>
+                                <p className="text-sm text-gray-500 dark:text-gray-400">
+                                    {t.updateWarningMsg.replace('{{percent}}', pendingUpdate.similarity.toString())}
+                                </p>
+                            </div>
+                            <div className="flex gap-3 w-full pt-2">
+                                <button 
+                                    onClick={() => setPendingUpdate(null)}
+                                    className="flex-1 px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 font-bold rounded-xl hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                                >
+                                    {t.updateCancel}
+                                </button>
+                                <button 
+                                    onClick={() => processProjectUpdate(pendingUpdate.parsed, pendingUpdate.projectId)}
+                                    className="flex-1 px-4 py-2 bg-amber-600 text-white font-bold rounded-xl hover:bg-amber-700 shadow-lg shadow-amber-500/30 transition-colors"
+                                >
+                                    {t.updateConfirm}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
       </div>
   );
 };
 
-const Main: React.FC = () => {
-    return (
-        <ThemeProvider>
-            <ToastProvider>
-                <AppContent />
-            </ToastProvider>
-        </ThemeProvider>
-    );
-}
-
+const Main: React.FC = () => <ThemeProvider><ToastProvider><AppContent /></ToastProvider></ThemeProvider>;
 export default Main;

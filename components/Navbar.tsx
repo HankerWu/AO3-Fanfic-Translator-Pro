@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Languages, Heart, Library, Sun, Moon, Settings, Archive, Menu, X, BookOpen } from 'lucide-react';
+import { Languages, Heart, Library, Sun, Moon, Settings, Archive, Menu, X, BookOpen, ExternalLink } from 'lucide-react';
 import { useTheme } from './ThemeContext';
 import { UI_STRINGS, LanguageCode } from '../services/i18n';
 import { DisplayMode } from '../types';
@@ -35,19 +35,35 @@ const Navbar: React.FC<NavbarProps> = ({
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         
         {/* Left: Branding */}
-        <div className="flex items-center gap-2 md:gap-3 cursor-pointer group flex-shrink-0" onClick={onHome}>
-          <div className="bg-[#990000] dark:bg-[#b30000] text-white p-1.5 px-2 rounded font-serif font-bold text-lg tracking-tighter shadow-sm group-hover:shadow-md transition-all">AO3</div>
-          <div className="flex flex-col">
-            {/* Desktop Title */}
-            <span className="hidden md:inline font-serif font-bold text-gray-900 dark:text-gray-100 text-base md:text-lg leading-none tracking-tight">
-                {t.appTitle}
-            </span>
-            {/* Mobile Title (Short) */}
-            <span className="md:hidden font-serif font-bold text-gray-900 dark:text-gray-100 text-base leading-none tracking-tight">
-                {t.appTitleShort}
-            </span>
-            <span className="text-[10px] uppercase tracking-wider text-gray-400 font-medium hidden sm:block">{t.poweredBy}</span>
-          </div>
+        <div className="flex items-center gap-2 md:gap-3 flex-shrink-0">
+          {/* AO3 Badge - External Link */}
+          <Tooltip content={t.goToAO3} position="bottom">
+            <a 
+              href="https://archiveofourown.org" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="bg-[#990000] dark:bg-[#b30000] text-white p-1.5 px-2 rounded font-serif font-bold text-lg tracking-tighter shadow-sm hover:shadow-md hover:scale-105 transition-all flex items-center justify-center"
+            >
+              AO3
+            </a>
+          </Tooltip>
+
+          {/* Title - Library Button */}
+          <Tooltip content={t.returnHome} position="bottom">
+            <div 
+              className="flex flex-col cursor-pointer group select-none"
+              onClick={onHome}
+            >
+              {/* Desktop Title - Updated to "Reader" */}
+              <span className="hidden md:inline font-serif font-bold text-gray-900 dark:text-gray-100 text-base md:text-lg leading-none tracking-tight group-hover:text-[#990000] dark:group-hover:text-red-400 transition-colors">
+                  {t.appTitleShort} 
+              </span>
+              {/* Mobile Title (Short) */}
+              <span className="md:hidden font-serif font-bold text-gray-900 dark:text-gray-100 text-base leading-none tracking-tight group-hover:text-[#990000] dark:group-hover:text-red-400 transition-colors">
+                  {t.appTitleShort}
+              </span>
+            </div>
+          </Tooltip>
         </div>
 
         {/* Center: Reading Controls (Desktop) */}

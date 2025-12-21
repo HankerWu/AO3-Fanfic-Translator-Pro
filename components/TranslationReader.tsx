@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { TranslationBlock, DisplayMode, AVAILABLE_MODELS, ReadingSettings } from '../types';
 import { refineBlock } from '../services/geminiService';
-import { Edit2, Check, X, BookOpen, Heart, Bookmark, FileText, Sparkles, ArrowUp, List, ChevronLeft, ChevronRight, Upload, Heading, FileDown, Play, Loader2, Globe, Link as LinkIcon, Eye, EyeOff, Search } from 'lucide-react';
+import { Edit2, Check, X, BookOpen, Heart, Bookmark, FileText, Sparkles, ArrowUp, List, ChevronLeft, ChevronRight, Upload, Heading, FileDown, Play, Loader2, Globe, Link as LinkIcon, Eye, EyeOff, Search, ExternalLink } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { UI_STRINGS, LanguageCode } from '../services/i18n';
 import Tooltip from './Tooltip';
@@ -548,10 +548,26 @@ const TranslationReader: React.FC<TranslationReaderProps> = ({
       <div className={`bg-transparent ${isCustomTheme ? 'border-none' : 'border-b border-gray-100 dark:border-gray-800'} p-6 md:p-8 rounded-t-3xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-sm transition-colors`}>
           <div>
               <h1 className="font-serif font-black text-2xl md:text-3xl mb-2 line-clamp-1">{title}</h1>
-              <div className="flex items-center gap-3 text-sm opacity-60 font-medium">
+              <div className="flex items-center gap-3 text-sm opacity-60 font-medium flex-wrap">
                   <span>{author}</span>
                   <span className="w-1 h-1 bg-current rounded-full"></span>
                   <span className="truncate max-w-[200px]">{fandom}</span>
+                  
+                  {/* External Source Link */}
+                  {url && (
+                    <>
+                        <span className="w-1 h-1 bg-current rounded-full"></span>
+                        <a 
+                            href={url} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 text-[#990000] dark:text-red-400 hover:underline transition-all"
+                            title={t.goToSource}
+                        >
+                            <ExternalLink className="w-3.5 h-3.5" /> Source
+                        </a>
+                    </>
+                  )}
               </div>
           </div>
           <div className="flex items-center gap-2">

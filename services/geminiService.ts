@@ -1,6 +1,7 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 import { TranslationBlock } from "../types";
+import { translateWithGoogle } from "./googleTranslateService";
 
 // Helper to instantiate AI client dynamically
 const getAI = (customKey?: string) => {
@@ -64,9 +65,11 @@ async function callWithRetry<T>(fn: () => Promise<T>, maxRetries: number = 3, ba
 
 export const identifyFandom = async (textSample: string, model: string, apiKey?: string): Promise<string> => {
   try {
+    // Basic identification uses Gemini Flash even if Google Translate is selected for main translation
+    const modelToUse = model === 'google-translate' ? 'gemini-3-flash-preview' : model;
     const ai = getAI(apiKey);
     const response = await ai.models.generateContent({
-      model: model,
+      model: modelToUse,
       contents: `Analyze the following text sample from a fanfiction. Identify the "Fandom" (the original work, show, book, or game it is based on). Return ONLY the name of the fandom. If unknown, return "General".\n\nText: "${textSample.substring(0, 1000)}..."`,
     });
     return response.text?.trim() || "Unknown";
@@ -78,6 +81,8 @@ export const identifyFandom = async (textSample: string, model: string, apiKey?:
 
 export const generateFandomGlossary = async (fandom: string, targetLang: string, model: string, apiKey?: string): Promise<string> => {
   try {
+    // Glossary generation always needs an LLM
+    const modelToUse = model === 'google-translate' ? 'gemini-3-flash-preview' : model;
     const ai = getAI(apiKey);
     const prompt = `Task: Create a concise glossary for the fandom "${fandom}".
     Target Language: ${targetLang}
@@ -93,7 +98,7 @@ export const generateFandomGlossary = async (fandom: string, targetLang: string,
     Keep it strictly relevant to translation and helpful for maintaining consistency. Do not output conversational text.`;
 
     const response = await ai.models.generateContent({
-      model: model,
+      model: modelToUse,
       contents: prompt,
     });
     return response.text?.trim() || "";
@@ -122,6 +127,14 @@ export const translateBatch = async (
   
   const { model, customPrompt, previousContext, tags, tagInstruction, glossary, apiKey } = options;
 
+  // --- GOOGLE TRANSLATE PATH ---
+  if (model === 'google-translate') {
+     return callWithRetry(async () => {
+         return await translateWithGoogle(blocks, targetLang, apiKey);
+     }, 2, 1000);
+  }
+
+  // --- GEMINI LLM PATH ---
   const systemInstruction = customPrompt || `You are a professional literary translator specializing in Fanfiction.`;
 
   // Construct the prompt with all metadata
@@ -196,6 +209,9 @@ export const refineBlock = async (
   apiKey?: string
 ): Promise<string> => {
   
+  // Refine always uses LLM, even if base translation was Google
+  const modelToUse = model === 'google-translate' ? 'gemini-3-flash-preview' : model;
+
   const systemInstruction = `You are a professional literary translator and editor. 
 Your task is to REWRITE the "Current Draft" based on the "User Instruction".
 If the User Instruction asks for a translation or correction, output ONLY the final corrected text.
@@ -211,7 +227,7 @@ Do not output explanation. Do not output markdown code fences.`;
   try {
     const ai = getAI(apiKey);
     const response = await ai.models.generateContent({
-      model: model,
+      model: modelToUse,
       contents: prompt,
       config: {
         systemInstruction: systemInstruction,
